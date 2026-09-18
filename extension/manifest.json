@@ -1,0 +1,23 @@
+{
+  "manifest_version": 3,
+  "name": "AxureShare 上传助手",
+  "version": "1.2.0",
+  "description": "在 Axure RP 预览页一键打包并同步原型到 AxureShare：服务器地址与项目库由后台下发，选择项目即可替换更新。",
+  "permissions": ["storage"],
+  "host_permissions": ["http://*/*", "https://*/*", "file:///*"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "AxureShare 上传助手"
+  },
+  "content_scripts": [
+    {
+      "matches": ["http://*/*", "https://*/*", "file:///*"],
+      "js": ["lib/discover.js", "lib/picker.js", "content.js"],
+      "css": ["content.css"],
+      "run_at": "document_idle"
+    }
+  ]
+}

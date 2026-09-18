@@ -793,3 +793,79 @@ def inject_base_tag_into_html(html_content: str, base_href: str) -> str:
         return html_content[: html_idx + 6] + tag + html_content[html_idx + 6 :]
         
     return tag + html_content
+
+
+TOOLBAR_SCRIPT_START = "<!-- axure-share-toolbar -->"
+TOOLBAR_SCRIPT_END = "<!-- /axure-share-toolbar -->"
+
+
+def inject_toolbar_script_into_html(html_content: str, state: str) -> str:
+    """向 Axure 播放器入口页注入工具栏（页面树）状态控制脚本。"""
+
+    html_content = remove_toolbar_script_from_html(html_content)
+    if state not in ("hide_sitemaps", "collapsed"):
+        return html_content
+    hide_forever = "true" if state == "hide_sitemaps" else "false"
+    css_rule = "#sitemap,#sitemapTreeContainer{display:none!important}" if state == "hide_sitemaps" else ""
+    script = f"""
+{TOOLBAR_SCRIPT_START}
+<script>
+(function () {{
+  var HIDE_FOREVER = {hide_forever};
+  var css = document.createElement('style');
+  css.textContent = {css_rule!r};
+  function collapse() {{
+    try {{
+      var p = window.$axure && $axure.player;
+      if (p && typeof p.collapseSitemap === 'function') {{ p.collapseSitemap(); return true; }}
+      return false;
+    }} catch (e) {{ return false; }}
+  }}
+  function forceHidePanel() {{
+    var panel = document.getElementById('sitemap');
+    if (panel) panel.style.display = 'none';
+    collapse();
+  }}
+  function tryStart() {{
+    var p = window.$axure && $axure.player;
+    var ready = p && (p.documentLoaded || (p.$axure && p.$axure.document));
+    if (!ready) {{ setTimeout(tryStart, 200); return; }}
+    document.head.appendChild(css);
+    forceHidePanel();
+    setTimeout(forceHidePanel, 1200);
+    if (!HIDE_FOREVER) {{
+      document.addEventListener('click', function (ev) {{
+        var t = ev.target && ev.target.id ? String(ev.target.id) : '';
+        if (t.indexOf('sitemapExpandHost') !== -1 || t.indexOf('sitemapExpandButton') !== -1) {{
+          var panel = document.getElementById('sitemap');
+          if (panel) panel.style.display = '';
+        }}
+      }}, true);
+    }}
+  }}
+  if (document.readyState === 'loading') {{
+    document.addEventListener('DOMContentLoaded', tryStart);
+  }} else {{
+    tryStart();
+  }}
+}})();
+</script>
+{TOOLBAR_SCRIPT_END}
+"""
+    lower = html_content.lower()
+    close_body_idx = lower.rfind("</body>")
+    if close_body_idx != -1:
+        return html_content[:close_body_idx] + script + html_content[close_body_idx:]
+    return html_content + script
+
+
+def remove_toolbar_script_from_html(html_content: str) -> str:
+    """移除已注入的工具栏控制脚本（幂等，防止重复注入）。"""
+
+    start = html_content.find(TOOLBAR_SCRIPT_START)
+    if start == -1:
+        return html_content
+    end = html_content.find(TOOLBAR_SCRIPT_END, start)
+    if end == -1:
+        return html_content
+    return html_content[:start] + html_content[end + len(TOOLBAR_SCRIPT_END):]

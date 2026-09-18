@@ -4,31 +4,97 @@
     <div class="page-header">
         <h2 class="page-title">个人资料</h2>
     </div>
-    <div class="app-card">
-        <form method="POST" action="">
-            {{ form.hidden_tag() }}
-            
-            <div class="alert alert-info">
-              <strong>你的 API Token:</strong> <code>{{ current_user.api_token }}</code>
-              <p class="small text-muted mb-0">这是你的个人访问令牌，用于通过 API 与本系统交互，请妥善保管。</p>
+
+    <div class="profile-layout">
+        <div class="app-card profile-card-id">
+            <div class="profile-avatar">{{ current_user.username[0]|upper }}</div>
+            <div class="profile-name">{{ current_user.username }}</div>
+            <span class="badge {{ 'badge-warning' if current_user.role == 'admin' else 'badge-secondary' }}">
+                {{ '管理员' if current_user.role == 'admin' else '普通用户' }}
+            </span>
+        </div>
+
+        <div class="app-card profile-card">
+            <div class="profile-section-title"><i class="fas fa-id-card fa-fw me-1"></i>基本信息</div>
+            <div class="profile-info-grid">
+                <div class="profile-info-item">
+                    <span class="profile-info-label">用户 ID</span>
+                    <span class="profile-info-value">{{ current_user.id }}</span>
+                </div>
+                <div class="profile-info-item">
+                    <span class="profile-info-label">等级</span>
+                    <span class="profile-info-value">{{ '管理员' if current_user.role == 'admin' else '普通用户' }}</span>
+                </div>
+                <div class="profile-info-item">
+                    <span class="profile-info-label">注册时间</span>
+                    <span class="profile-info-value">{{ current_user.created_at | datetime_cn if current_user.created_at else '—' }}</span>
+                </div>
+                <div class="profile-info-item">
+                    <span class="profile-info-label">我的项目 / 原型</span>
+                    <span class="profile-info-value">{{ stats.project_count }} / {{ stats.proto_count }}</span>
+                </div>
             </div>
-            
-            <div class="mb-3">
-                {{ form.username.label(class="form-control-label") }}
-                {{ form.username(class="form-control", readonly=true) }}
+            <div class="profile-storage">
+                <div class="d-flex justify-content-between mb-1">
+                    <span class="profile-info-label">空间使用</span>
+                    <span class="text-muted small">{{ stats.used_mb }} / {{ stats.quota_mb }} MB</span>
+                </div>
+                <div class="ps-progress"><div class="ps-progress-bar" style="width: {{ [stats.used_pct, 100]|min }}%"></div></div>
             </div>
-            <div class="mb-3">
-                {{ form.password.label(class="form-control-label") }}
-                {{ form.password(class="form-control") }}
+        </div>
+
+        <div class="app-card profile-card">
+            <div class="profile-section-title"><i class="fas fa-key fa-fw me-1"></i>API Token</div>
+            <p class="text-muted small mb-2">用于浏览器扩展与 API 接入，通过 API 与本系统交互，请妥善保管。</p>
+            <div class="d-flex align-items-center" style="gap: 8px;">
+                <code class="profile-token" id="profile-token">{{ current_user.api_token }}</code>
+                <button type="button" class="btn btn-sm btn-outline-secondary" id="profile-token-copy">复制</button>
             </div>
-            <div class="mb-3">
-                {{ form.confirm_password.label(class="form-control-label") }}
-                {{ form.confirm_password(class="form-control") }}
-            </div>
-            <div class="mb-3 mb-0">
-                {{ form.submit(class="btn btn-primary") }}
-            </div>
-        </form>
+        </div>
+
+        <div class="app-card profile-card">
+            <div class="profile-section-title"><i class="fas fa-lock fa-fw me-1"></i>修改密码</div>
+            <form method="POST" action="" class="profile-pwd-form">
+                {{ form.hidden_tag() }}
+                <div class="mb-3">
+                    {{ form.username.label(class="form-control-label") }}
+                    {{ form.username(class="form-control", readonly=true) }}
+                </div>
+                <div class="mb-3">
+                    {{ form.password.label(class="form-control-label") }}
+                    {{ form.password(class="form-control", type="password", placeholder="留空则不修改") }}
+                </div>
+                <div class="mb-3">
+                    {{ form.confirm_password.label(class="form-control-label") }}
+                    {{ form.confirm_password(class="form-control", type="password") }}
+                </div>
+                <div class="mb-0">
+                    {{ form.submit(class="btn btn-primary") }}
+                </div>
+            </form>
+        </div>
     </div>
 
+<script>
+    (function () {
+        var btn = document.getElementById('profile-token-copy');
+        var code = document.getElementById('profile-token');
+        if (!btn || !code) return;
+        btn.addEventListener('click', function () {
+            var text = code.textContent.trim();
+            var done = function () {
+                btn.textContent = '已复制';
+                setTimeout(function () { btn.textContent = '复制'; }, 1500);
+            };
+            if (navigator.clipboard && window.isSecureContext) {
+                navigator.clipboard.writeText(text).then(done);
+            } else {
+                var ta = document.createElement('textarea');
+                ta.value = text; document.body.appendChild(ta); ta.select();
+                document.execCommand('copy'); document.body.removeChild(ta);
+                done();
+            }
+        });
+    })();
+</script>
 {% endblock %}

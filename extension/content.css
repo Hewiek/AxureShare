@@ -1,0 +1,10 @@
+/* 仅约束 shadow DOM 宿主容器；面板样式在 content.js 内注入 shadow root，避免污染原型页面。 */
+#axureshare-helper {
+  all: initial;
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 0;
+  z-index: 2147483647;
+}

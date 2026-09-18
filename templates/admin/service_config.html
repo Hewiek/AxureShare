@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}服务配置{% endblock %}
+{% block content %}
+    <div class="page-header">
+        <h2 class="page-title">服务配置</h2>
+        <div class="page-actions">
+            <a href="{{ url_for('edit_service_config') }}?key=" class="btn btn-primary">新增自定义参数</a>
+        </div>
+    </div>
+    <p class="text-muted">这里配置服务器、密钥等运行参数。数据库中的配置优先于环境变量；删除配置项将回退到环境变量或默认值。仅管理员可访问。</p>
+    {% for group in groups %}
+    <div class="app-card mb-4">
+        <h5 class="mb-3">{{ group.category }}</h5>
+        <div class="table-responsive">
+            <table class="table table-hover table-modern">
+                <thead><tr><th>参数</th><th>当前值</th><th>来源</th><th>最近修改</th><th>操作</th></tr></thead>
+                <tbody>
+                {% for item in group['items'] %}
+                    <tr>
+                        <td>
+                            {{ item.spec.label if item.spec else item.key }}
+                            <div><code class="text-muted small">{{ item.key }}</code></div>
+                            {% if item.spec and item.spec.help_text %}
+                            <div class="small text-muted">{{ item.spec.help_text }}</div>
+                            {% endif %}
+                        </td>
+                        <td>{{ display_value(item) }}</td>
+                        <td>
+                            {% if item.source == 'db' %}
+                                <span class="badge badge-success">数据库</span>
+                            {% elif item.source.startswith('env:') %}
+                                <span class="badge badge-secondary" title="来自环境变量，可在此覆盖">{{ item.source[4:] }}</span>
+                            {% else %}
+                                <span class="badge badge-secondary">默认值</span>
+                            {% endif %}
+                        </td>
+                        <td class="small text-muted">
+                            {% if item.updated_at %}
+                                {{ item.updated_at.strftime('%Y-%m-%d %H:%M') }}
+                                {% if item.updated_by %}（{{ item.updated_by }}）{% endif %}
+                            {% else %}
+                                -
+                            {% endif %}
+                        </td>
+                        <td>
+                            <div class="table-actions">
+                                <a href="{{ url_for('edit_service_config') }}?key={{ item.key }}" class="btn btn-sm btn-secondary">编辑</a>
+                                {% if item.removable %}
+                                <form method="post" action="{{ url_for('delete_service_config', key=item.key) }}" onsubmit="return confirm('确定删除参数 {{ item.key }} 吗？将回退到环境变量或默认值。');" class="d-inline">
+                                    <button type="submit" class="btn btn-sm btn-danger">删除</button>
+                                </form>
+                                {% endif %}
+                            </div>
+                        </td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% endfor %}
+{% endblock %}

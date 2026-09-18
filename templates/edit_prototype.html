@@ -128,47 +128,7 @@
         </div>
         
         <hr>
-        <h4>公开访问设置</h4>
-        <div class="mb-3">
-            <div class="d-flex align-items-center">
-                {{ form.is_public(style="margin-top: 0; margin-right: 8px; cursor: pointer;") }}
-                {{ form.is_public.label(class="fw-normal mb-0", style="cursor: pointer;") }}
-            </div>
-        </div>
-        <div class="mb-3">
-            {{ form.access_password.label }}
-            <div class="text-muted mb-2">
-                当前访问密码：{% if proto.access_password %}已设置{% else %}未设置{% endif %}
-            </div>
-            {{ form.access_password(class="form-control", placeholder="留空或清空以移除密码", type="text") }}
-        </div>
-        
-        <hr>
-        <h4>独立权限设置 (如果原型属于某个项目，将继承项目权限)</h4>
-        <p class="text-muted">所有者 ({{ proto.owner.username }}) 和管理员默认拥有所有权限。</p>
-        <div class="row">
-            <div class="col-md-6">
-                <h5>用户组权限</h5>
-                <div class="row"><div class="col-6"><strong>可访问用户组</strong></div><div class="col-6"><strong>可编辑用户组</strong></div></div>
-                {% for group in groups %}
-                <div class="row border-bottom py-1">
-                    <div class="col-6"><div class="form-check"><input class="form-check-input" type="checkbox" name="viewing_groups" value="{{ group.id }}" id="view-group-{{group.id}}" {% if group in proto.viewing_groups %}checked{% endif %}> <label class="form-check-label" for="view-group-{{group.id}}">{{ group.name }}</label></div></div>
-                    <div class="col-6"><div class="form-check"><input class="form-check-input" type="checkbox" name="editing_groups" value="{{ group.id }}" id="edit-group-{{group.id}}" {% if group in proto.editing_groups %}checked{% endif %}> <label class="form-check-label" for="edit-group-{{group.id}}">{{ group.name }}</label></div></div>
-                </div>
-                {% endfor %}
-            </div>
-            <div class="col-md-6">
-                <h5>用户权限</h5>
-                <div class="row"><div class="col-6"><strong>可访问用户</strong></div><div class="col-6"><strong>可编辑用户</strong></div></div>
-                {% for user in users %}
-                <div class="row border-bottom py-1">
-                    <div class="col-6"><div class="form-check"><input class="form-check-input" type="checkbox" name="viewing_users" value="{{ user.id }}" id="view-user-{{user.id}}" {% if user in proto.viewing_users %}checked{% endif %}> <label class="form-check-label" for="view-user-{{user.id}}">{{ user.username }}</label></div></div>
-                    <div class="col-6"><div class="form-check"><input class="form-check-input" type="checkbox" name="editing_users" value="{{ user.id }}" id="edit-user-{{user.id}}" {% if user in proto.editing_users %}checked{% endif %}> <label class="form-check-label" for="edit-user-{{user.id}}">{{ user.username }}</label></div></div>
-                </div>
-                {% endfor %}
-            </div>
-        </div>
-        <hr>
+        <div class="text-muted small mb-3">公开分享、访问密码与工具栏状态请在原型行的「分享」弹窗中设置。</div>
         <div class="mb-3 mt-4 mb-0">
             <button type="submit" class="btn btn-primary">{{ form.submit.label.text }}</button>
         </div>

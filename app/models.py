@@ -66,6 +66,7 @@ class User(UserMixin, db.Model):
     username = db.Column(db.String(80), unique=True, nullable=False)
     password_hash = db.Column(db.String(200))
     role = db.Column(db.String(20), nullable=False, default="user")
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
     groups = db.relationship("Group", secondary=user_group_association, back_populates="users")
     api_token = db.Column(db.String(36), unique=True, nullable=True, default=lambda: str(uuid.uuid4()))
 
@@ -163,6 +164,7 @@ class Prototype(db.Model):
     project_id = db.Column(db.Integer, db.ForeignKey("project.id"), nullable=True)
     resource_type = db.Column(db.String(20), nullable=False, server_default="axure")  # axure, static, url
     target_url = db.Column(db.String(500), nullable=True)
+    toolbar_state = db.Column(db.String(20), nullable=False, server_default="expanded")  # expanded, hide_sitemaps, collapsed
     rule_keywords = db.Column(db.Text, nullable=True, default='["jiao_hu_gui_ze"]')
     viewing_users = db.relationship(
         "User",
@@ -234,6 +236,17 @@ class PrototypeAttachment(db.Model):
     filename = db.Column(db.String(255), nullable=False)
     savename = db.Column(db.String(255), nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+class SystemConfig(db.Model):
+    """服务配置项（键值对），由管理员在后台维护。"""
+
+    id = db.Column(db.Integer, primary_key=True)
+    key = db.Column(db.String(120), unique=True, nullable=False)
+    value = db.Column(db.Text, nullable=False, default="")
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_by_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=True)
+    updated_by = db.relationship("User", foreign_keys=[updated_by_id])
 
 
 class ViewLog(db.Model):

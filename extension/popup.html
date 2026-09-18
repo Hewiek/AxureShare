@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>AxureShare 上传助手</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <header>
+      <h1>AxureShare 上传助手</h1>
+      <span class="ver">v1.2.0</span>
+    </header>
+
+    <section>
+      <div id="account" class="acct"></div>
+      <div id="serverLine" class="srv"></div>
+    </section>
+
+    <section>
+      <h2>默认项目</h2>
+      <div class="row">
+        <div id="projectPicker" class="grow"></div>
+        <button id="refresh" class="btn small" type="button">刷新</button>
+      </div>
+      <div id="newProjectRow" style="display: none">
+        <label for="newProjectName">新建项目名称</label>
+        <input id="newProjectName" type="text" placeholder="如：2026-9-18 首页改版" autocomplete="off" />
+      </div>
+    </section>
+
+    <section>
+      <h2>本地文件夹上传</h2>
+      <input id="folderName" type="text" placeholder="原型名称（留空用文件夹名）" autocomplete="off" />
+      <div class="row">
+        <button id="pickFolder" class="btn" type="button">选择文件夹并上传</button>
+        <label class="chk"><input id="folderPublic" type="checkbox" /> 公开</label>
+      </div>
+    </section>
+
+    <div class="progress-wrap">
+      <div class="bar"><i id="bar"></i></div>
+      <div id="status" class="status"></div>
+      <div id="result" class="result"></div>
+    </div>
+
+    <details class="more">
+      <summary>更多设置</summary>
+      <label class="chk"><input id="alwaysShow" type="checkbox" /> 非 Axure 页也显示悬浮按钮</label>
+      <p class="tip">
+        本扩展不收集任何个人数据；账号仅用于向服务器换取 API 密钥，密钥与设置只保存在本机浏览器，
+        原型文件只发往后台下发的服务器地址。
+      </p>
+    </details>
+
+    <script src="lib/zip.js"></script>
+    <script src="lib/api.js"></script>
+    <script src="lib/picker.js"></script>
+    <script src="popup.js"></script>
+  </body>
+</html>

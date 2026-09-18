@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>登录 AxureShare</title>
+    <link rel="stylesheet" href="login.css" />
+  </head>
+  <body>
+    <header>
+      <h1>登录 AxureShare</h1>
+      <span class="ver">v1.2.0</span>
+    </header>
+
+    <main>
+      <div id="serverLine" class="srv"></div>
+      <div id="serverRow" class="srv-row" style="display: none">
+        <input id="server" type="text" placeholder="http://192.168.1.10:7855" autocomplete="off" />
+        <button id="serverSave" class="btn small" type="button">连接</button>
+      </div>
+      <button id="serverEdit" class="link-btn srv-edit" type="button">改用其他地址</button>
+
+      <label for="username">用户名</label>
+      <input id="username" type="text" autocomplete="off" />
+
+      <label for="password">密码</label>
+      <input id="password" type="password" autocomplete="current-password" />
+
+      <div class="row">
+        <button id="submit" class="btn primary" type="button">登录</button>
+        <button id="cancel" class="btn" type="button">取消</button>
+      </div>
+
+      <div id="status" class="status"></div>
+      <div id="account" class="account"></div>
+    </main>
+
+    <footer>账号密码只发送到上面这个服务器，用于换取 API 密钥；密钥仅保存在本机浏览器。</footer>
+
+    <script src="lib/api.js"></script>
+    <script src="login.js"></script>
+  </body>
+</html>

@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}移动原型{% endblock %}
+{% block content %}
+<div class="app-card move-modal">
+    <div class="page-header">
+        <h4 class="page-title">移动原型</h4>
+    </div>
+    <p class="text-muted mb-3">
+        将项目「<strong>{{ project.name }}</strong>」内的 {{ prototype_count }} 个原型移动到其他项目。仅移动你有编辑权限的原型。
+    </p>
+    {% if prototype_count == 0 %}
+    <div class="alert alert-secondary mb-0">当前项目内没有原型可移动。</div>
+    {% else %}
+    <form method="post" action="{{ url_for('move_project_prototypes', project_id=project.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="move-target-list">
+            <label class="move-target">
+                <input type="radio" name="target_project_id" value="0" required>
+                <span class="move-target-body">
+                    <i class="fas fa-inbox fa-fw"></i>
+                    <span>独立原型（不归属任何项目）</span>
+                </span>
+            </label>
+            {% for target in editable_projects %}
+            <label class="move-target">
+                <input type="radio" name="target_project_id" value="{{ target.id }}" required>
+                <span class="move-target-body">
+                    <i class="fas fa-folder fa-fw"></i>
+                    <span>{{ target.name }}</span>
+                    <small class="text-muted ms-auto">{{ target.owner.username }}</small>
+                </span>
+            </label>
+            {% else %}
+            <div class="text-muted small py-2">没有其他你有管理权限的项目。</div>
+            {% endfor %}
+        </div>
+        <div class="d-flex justify-content-end mt-3">
+            <button type="submit" class="btn btn-primary"><i class="fas fa-share fa-fw me-1"></i>确认移动</button>
+        </div>
+    </form>
+    {% endif %}
+</div>
+{% endblock %}

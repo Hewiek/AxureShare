@@ -84,7 +84,8 @@ def create_app() -> Flask:
     register_routes(app=app, deps=deps)
 
     with app.app_context():
-        ensure_default_admin()
+        if not os.environ.get("SKIP_BOOTSTRAP"):
+            ensure_default_admin()
         ai_service.init_storage()
         files_service.ensure_folders()
 

@@ -13,10 +13,12 @@ import uuid
 import zipfile
 from datetime import datetime, timedelta
 from functools import wraps
+from pathlib import Path
 from typing import Any, Callable, TypeVar
 
 from flask import Flask, Response, abort, flash, jsonify, redirect, render_template, request, send_file, session, url_for
 from flask_login import current_user, login_required, login_user, logout_user
+from flask_wtf.csrf import generate_csrf
 from sqlalchemy import desc, exc
 from sqlalchemy.orm import joinedload
 from werkzeug.datastructures import FileStorage
@@ -34,10 +36,16 @@ from app.forms import (
     PrototypeUploadForm,
     PublicPasswordForm,
 )
-from app.models import Group, Project, Prototype, PrototypeAttachment, User, ViewLog
+from app.models import Group, Project, Prototype, PrototypeAttachment, SystemConfig, User, ViewLog
 from app.permissions import admin_required, has_edit_permission, has_edit_permission_project, has_view_permission, has_view_permission_project
+from app.services import service_config
 from app.services.prototype_files import ZipFileInvalidError
-from app.utils.html_rules import inject_ai_widget_into_html, remove_ai_widget_from_html
+from app.services.service_config import get_config as get_service_config
+from app.utils.html_rules import (
+    inject_ai_widget_into_html,
+    inject_toolbar_script_into_html,
+    remove_ai_widget_from_html,
+)
 from app.utils.path_security import is_within_directory
 from app.utils.text_files import read_text_file
 from app.utils.network import get_remote_ip
@@ -111,10 +119,20 @@ def register_routes(app: Flask, deps: AppDeps) -> None:
     def dashboard() -> str:
         all_projects = Project.query.options(joinedload(Project.prototypes)).order_by(desc(Project.name)).all()
         visible_projects = [p for p in all_projects if has_view_permission_project(p)]
+        uploads_root = Path(app.config["UPLOAD_FOLDER"])
+        used_bytes = sum(int(entry.stat().st_size) for entry in uploads_root.rglob("*") if entry.is_file()) if uploads_root.is_dir() else 0
+        quota_mb = int(get_service_config("STORAGE_QUOTA_MB", "1024") or 1024)
+        used_mb = round(used_bytes / 1024 / 1024, 2)
         return render_template(
             "dashboard.html",
             projects=visible_projects,
             has_edit_permission_project=has_edit_permission_project,
+            storage={
+                "quota_mb": quota_mb,
+                "used_mb": used_mb,
+                "free_mb": round(max(quota_mb - used_mb, 0), 2),
+                "used_pct": round(used_mb / quota_mb * 100, 1) if quota_mb else 100,
+            },
         )
 
     @app.route("/prototypes/unassigned")
@@ -197,19 +215,91 @@ def register_routes(app: Flask, deps: AppDeps) -> None:
         if form.validate_on_submit():
             project.name = form.name.data
             project.updated_at = datetime.utcnow()
-            project.viewing_users = User.query.filter(User.id.in_(request.form.getlist("viewing_users"))).all()
-            project.editing_users = User.query.filter(User.id.in_(request.form.getlist("editing_users"))).all()
-            project.viewing_groups = Group.query.filter(Group.id.in_(request.form.getlist("viewing_groups"))).all()
-            project.editing_groups = Group.query.filter(Group.id.in_(request.form.getlist("editing_groups"))).all()
+            # 协作权限已迁移到「协作」弹窗，这里不再处理，避免误清空
             db.session.commit()
             flash(f'项目 "{project.name}" 更新成功!', "success")
             return redirect(url_for("dashboard"))
 
-        all_users = (
-            User.query.filter(User.role != "admin", User.id != project.owner_id).order_by(User.username).all()
-        )
+        return render_template("edit_project.html", form=form, project=project)
+
+    @app.route("/project/<int:project_id>/permissions", methods=["GET", "POST"])
+    @login_required
+    def project_permissions(project_id: int) -> str:
+        project = db.session.get(Project, project_id) or abort(404)
+        if not has_edit_permission_project(project):
+            abort(403)
+
+        if request.method == "POST":
+            viewing_users, editing_users = [], []
+            for user in User.query.filter(User.role != "admin", User.id != project.owner_id).all():
+                level = request.form.get(f"user_{user.id}", "none")
+                if level in ("view", "both"):
+                    viewing_users.append(user)
+                if level in ("edit", "both"):
+                    editing_users.append(user)
+            viewing_groups, editing_groups = [], []
+            for group in Group.query.all():
+                level = request.form.get(f"group_{group.id}", "none")
+                if level in ("view", "both"):
+                    viewing_groups.append(group)
+                if level in ("edit", "both"):
+                    editing_groups.append(group)
+            project.viewing_users = viewing_users
+            project.editing_users = editing_users
+            project.viewing_groups = viewing_groups
+            project.editing_groups = editing_groups
+            project.updated_at = datetime.utcnow()
+            db.session.commit()
+            flash(f'项目 "{project.name}" 的协作权限已更新。', "success")
+            return redirect(request.referrer or url_for("project_dashboard", project_id=project.id))
+
+        def level_of(viewing, editing, item):
+            in_view = item in viewing
+            in_edit = item in editing
+            if in_view and in_edit:
+                return "both"
+            if in_edit:
+                return "edit"
+            if in_view:
+                return "view"
+            return "none"
+
+        all_users = User.query.filter(User.role != "admin", User.id != project.owner_id).order_by(User.username).all()
         all_groups = Group.query.order_by(Group.name).all()
-        return render_template("edit_project.html", form=form, project=project, users=all_users, groups=all_groups)
+        user_levels = {f"user_{u.id}": level_of(project.viewing_users, project.editing_users, u) for u in all_users}
+        group_levels = {f"group_{g.id}": level_of(project.viewing_groups, project.editing_groups, g) for g in all_groups}
+        return render_template(
+            "project_permissions.html",
+            project=project,
+            users=all_users,
+            groups=all_groups,
+            user_levels=user_levels,
+            group_levels=group_levels,
+            csrf_token=generate_csrf,
+        )
+
+    @app.route("/project/<int:project_id>/clear-html", methods=["POST"])
+    @login_required
+    def project_clear_html(project_id: int) -> str:
+        project = db.session.get(Project, project_id) or abort(404)
+        if not has_edit_permission_project(project):
+            abort(403)
+        cleared, errors = 0, []
+        for proto in project.prototypes:
+            if not has_edit_permission(proto):
+                continue
+            try:
+                deps.prototype_files_service.delete_prototype_folder(proto.uuid)
+                cleared += 1
+            except Exception as e:
+                errors.append(f'{proto.name}: {e}')
+        if cleared:
+            deps.prototype_files_service.ensure_folders()
+        if errors:
+            flash(f"已清空 {cleared} 个，失败 {len(errors)} 个：{'；'.join(errors)}", "warning")
+        else:
+            flash(f'项目 "{project.name}" 下 {cleared} 个原型的 HTML 已清空，源文件与附件保留。', "success")
+        return redirect(request.referrer or url_for("project_dashboard", project_id=project.id))
 
     @app.route("/projects/delete/<int:project_id>", methods=["POST"])
     @login_required
@@ -331,6 +421,7 @@ def register_routes(app: Flask, deps: AppDeps) -> None:
             proto.target_url = form.target_url.data
             proto.project_id = form.project_id.data if form.project_id.data != 0 else None
             proto.description = form.description.data
+            # 独立权限设置已移至「权限」弹窗（prototype_permissions），此处不再处理，避免误清空
 
             new_keywords_json = None
             if form.rule_keywords.data:
@@ -343,18 +434,7 @@ def register_routes(app: Flask, deps: AppDeps) -> None:
             proto.rule_keywords = new_keywords_json
 
             proto.updater_id = current_user.id
-            proto.is_public = bool(form.is_public.data)
-            access_password = (form.access_password.data or "").strip()
-            if access_password:
-                # 直接赋值，确保是明文存储，绕过可能存在的旧版模型方法
-                proto.access_password = access_password
-            else:
-                proto.access_password = None
-
-            proto.viewing_users = User.query.filter(User.id.in_(request.form.getlist("viewing_users"))).all()
-            proto.editing_users = User.query.filter(User.id.in_(request.form.getlist("editing_users"))).all()
-            proto.viewing_groups = Group.query.filter(Group.id.in_(request.form.getlist("viewing_groups"))).all()
-            proto.editing_groups = Group.query.filter(Group.id.in_(request.form.getlist("editing_groups"))).all()
+            # 公开访问与密码已迁移到「分享」弹窗，这里不再处理，避免误清空
 
             if request.form.get("delete_legacy_attachment") == "1":
                 deps.prototype_files_service.delete_attachment(proto.attachment_savename)
@@ -440,6 +520,160 @@ def register_routes(app: Flask, deps: AppDeps) -> None:
         all_users = User.query.filter(User.role != "admin", User.id != proto.owner_id).order_by(User.username).all()
         all_groups = Group.query.order_by(Group.name).all()
         return render_template("edit_prototype.html", form=form, proto=proto, users=all_users, groups=all_groups)
+
+    @app.route("/prototype/<int:proto_id>/permissions", methods=["GET", "POST"])
+    @login_required
+    def prototype_permissions(proto_id: int) -> str:
+        proto = db.session.get(Prototype, proto_id) or abort(404)
+        if not has_edit_permission(proto):
+            abort(403)
+
+        if request.method == "POST":
+            viewing_users, editing_users = [], []
+            for user in User.query.filter(User.role != "admin", User.id != proto.owner_id).all():
+                level = request.form.get(f"user_{user.id}", "none")
+                if level in ("view", "both"):
+                    viewing_users.append(user)
+                if level in ("edit", "both"):
+                    editing_users.append(user)
+            viewing_groups, editing_groups = [], []
+            for group in Group.query.all():
+                level = request.form.get(f"group_{group.id}", "none")
+                if level in ("view", "both"):
+                    viewing_groups.append(group)
+                if level in ("edit", "both"):
+                    editing_groups.append(group)
+            proto.viewing_users = viewing_users
+            proto.editing_users = editing_users
+            proto.viewing_groups = viewing_groups
+            proto.editing_groups = editing_groups
+            db.session.commit()
+            flash(f'原型 "{proto.name}" 的权限已更新。', "success")
+            return redirect(request.referrer or url_for("unassigned_prototypes"))
+
+        def level_of(viewing, editing, item):
+            in_view = item in viewing
+            in_edit = item in editing
+            if in_view and in_edit:
+                return "both"
+            if in_edit:
+                return "edit"
+            if in_view:
+                return "view"
+            return "none"
+
+        all_users = [u for u in User.query.filter(User.role != "admin", User.id != proto.owner_id).order_by(User.username).all()]
+        all_groups = Group.query.order_by(Group.name).all()
+        user_levels = {f"user_{u.id}": level_of(proto.viewing_users, proto.editing_users, u) for u in all_users}
+        group_levels = {f"group_{g.id}": level_of(proto.viewing_groups, proto.editing_groups, g) for g in all_groups}
+        return render_template(
+            "prototype_permissions.html",
+            proto=proto,
+            users=all_users,
+            groups=all_groups,
+            user_levels=user_levels,
+            group_levels=group_levels,
+            csrf_token=generate_csrf,
+        )
+
+    @app.route("/prototype/<int:proto_id>/share", methods=["GET", "POST"])
+    @login_required
+    def prototype_share(proto_id: int) -> str:
+        proto = db.session.get(Prototype, proto_id) or abort(404)
+        if not has_edit_permission(proto):
+            abort(403)
+
+        short_id = deps.hashids.encode(proto.id)
+        base = get_service_config("SITE_BASE_URL").rstrip("/") or request.host_url.rstrip("/")
+        share_url = f"{base}{url_for('view_prototype', short_id=short_id)}"
+
+        if request.method == "POST":
+            proto.is_public = bool(request.form.get("is_public"))
+            password = (request.form.get("access_password") or "").strip()
+            proto.access_password = password or None
+            toolbar = request.form.get("toolbar_state") or "expanded"
+            if toolbar not in ("expanded", "hide_sitemaps", "collapsed"):
+                toolbar = "expanded"
+            proto.toolbar_state = toolbar
+            db.session.commit()
+            flash(f'原型 "{proto.name}" 的分享设置已更新。', "success")
+            return redirect(request.referrer or url_for("dashboard"))
+
+        return render_template("prototype_share.html", proto=proto, share_url=share_url, csrf_token=generate_csrf())
+
+    @app.route("/prototype/<int:proto_id>/update-method")
+    @login_required
+    def prototype_update_method(proto_id: int) -> str:
+        proto = db.session.get(Prototype, proto_id) or abort(404)
+        if not has_edit_permission(proto):
+            abort(403)
+        base = get_service_config("SITE_BASE_URL").rstrip("/") or request.host_url.rstrip("/")
+        return render_template(
+            "prototype_update.html", proto=proto, server_url=base, api_token=current_user.api_token
+        )
+
+    @app.route("/extension/download")
+    @login_required
+    def extension_download() -> Response:
+        dist_dir = Path(app.root_path).parent / "dist"
+        candidates = sorted(dist_dir.glob("axureshare-upload-helper-*.zip"))
+        if not candidates:
+            abort(404)
+        return send_file(candidates[-1], as_attachment=True, download_name="axureshare-upload-helper.zip")
+
+    @app.route("/prototype/<int:proto_id>/clear-html", methods=["POST"])
+    @login_required
+    def prototype_clear_html(proto_id: int) -> str:
+        proto = db.session.get(Prototype, proto_id) or abort(404)
+        if not has_edit_permission(proto):
+            abort(403)
+        try:
+            deps.prototype_files_service.delete_prototype_folder(proto.uuid)
+            deps.prototype_files_service.ensure_folders()
+        except Exception as e:
+            flash(f"清空失败：{e}", "danger")
+            return redirect(request.referrer or url_for("dashboard"))
+        flash(f'原型 "{proto.name}" 的 HTML 已清空，源文件与附件保留，可通过扩展同步或重新上传更新。', "success")
+        return redirect(request.referrer or url_for("dashboard"))
+
+    @app.route("/project/<int:project_id>/move", methods=["GET", "POST"])
+    @login_required
+    def move_project_prototypes(project_id: int) -> str:
+        project = db.session.get(Project, project_id) or abort(404)
+        if not has_edit_permission_project(project):
+            abort(403)
+        if request.method == "GET":
+            editable_projects = [
+                p for p in Project.query.order_by(Project.name).all()
+                if p.id != project.id and has_edit_permission_project(p)
+            ]
+            return render_template(
+                "project_move.html",
+                project=project,
+                prototype_count=len(project.prototypes),
+                editable_projects=editable_projects,
+                csrf_token=generate_csrf,
+            )
+        target_id = request.form.get("target_project_id", type=int)
+        if target_id == 0:
+            target = None
+        else:
+            target = db.session.get(Project, target_id) if target_id else None
+            if not target or not has_edit_permission_project(target):
+                flash("目标项目无效或你没有其管理权限。", "danger")
+                return redirect(request.referrer or url_for("project_dashboard", project_id=project.id))
+            if target.id == project.id:
+                flash("目标项目与当前项目相同。", "warning")
+                return redirect(request.referrer or url_for("project_dashboard", project_id=project.id))
+        moved = 0
+        for proto in project.prototypes:
+            if has_edit_permission(proto):
+                proto.project_id = target.id if target else None
+                moved += 1
+        db.session.commit()
+        target_name = target.name if target else "独立原型"
+        flash(f'已将 {moved} 个原型移动到「{target_name}」。', "success")
+        return redirect(request.referrer or url_for("project_dashboard", project_id=project.id))
 
     @app.route("/delete_prototype/<int:proto_id>", methods=["POST"])
     @login_required
@@ -787,7 +1021,9 @@ def register_routes(app: Flask, deps: AppDeps) -> None:
                 if not html:
                     return None
                 if proto.resource_type == "axure":
-                    rendered_html = inject_ai_widget_into_html(html)
+                    rendered_html = inject_toolbar_script_into_html(
+                        inject_ai_widget_into_html(html), proto.toolbar_state or "expanded"
+                    )
                 else:
                     rendered_html = remove_ai_widget_from_html(html)
                 return Response(rendered_html, mimetype="text/html; charset=utf-8")
@@ -896,6 +1132,38 @@ def register_routes(app: Flask, deps: AppDeps) -> None:
             guessed_mimetype = "text/css; charset=utf-8"
         return send_file(file_path, mimetype=guessed_mimetype)
 
+    def build_user_profile_stats(user: User) -> dict:
+        svc = deps.prototype_files_service
+
+        def file_size(path: str) -> int:
+            try:
+                return Path(path).stat().st_size
+            except OSError:
+                return 0
+
+        used_bytes = 0
+        proto_count = 0
+        for proto in Prototype.query.filter_by(owner_id=user.id).all():
+            proto_count += 1
+            html_dir = Path(svc.prototypes_folder) / proto.uuid
+            if html_dir.is_dir():
+                used_bytes += sum(f.stat().st_size for f in html_dir.rglob("*") if f.is_file())
+            if proto.source_savename:
+                used_bytes += file_size(os.path.join(svc.source_files_folder, proto.source_savename))
+            if proto.attachment_savename:
+                used_bytes += file_size(os.path.join(svc.attachments_folder, proto.attachment_savename))
+            for attachment in proto.attachments:
+                used_bytes += file_size(os.path.join(svc.attachments_folder, attachment.savename))
+        quota_mb = int(get_service_config("STORAGE_QUOTA_MB", "1024") or 1024)
+        used_mb = round(used_bytes / (1024 * 1024), 1)
+        return {
+            "proto_count": proto_count,
+            "project_count": Project.query.filter_by(owner_id=user.id).count(),
+            "used_mb": used_mb,
+            "quota_mb": quota_mb,
+            "used_pct": round(used_mb / quota_mb * 100, 1) if quota_mb else 0,
+        }
+
     @app.route("/profile", methods=["GET", "POST"])
     @login_required
     def user_profile() -> str:
@@ -913,7 +1181,9 @@ def register_routes(app: Flask, deps: AppDeps) -> None:
             except exc.IntegrityError:
                 db.session.rollback()
                 flash("该用户名已被占用，请选择其他用户名。", "danger")
-        return render_template("admin/profile.html", form=form)
+        return render_template(
+            "admin/profile.html", form=form, stats=build_user_profile_stats(user_to_edit or current_user)
+        )
 
     @app.route("/admin/profile", methods=["GET", "POST"])
     @login_required
@@ -1012,6 +1282,78 @@ def register_routes(app: Flask, deps: AppDeps) -> None:
         all_users = User.query.filter_by(role="user").order_by(User.username).all()
         return render_template("admin/edit_group.html", form=form, group=group, users=all_users)
 
+    def service_config_groups() -> list[dict[str, Any]]:
+        known_keys = {spec.key for spec in service_config.KNOWN_CONFIGS}
+        groups: list[dict[str, Any]] = []
+        by_category: dict[str, list[dict[str, Any]]] = {}
+        order: list[str] = []
+        for spec in service_config.KNOWN_CONFIGS:
+            item = service_config.resolve_for_display(spec.key)
+            item["editable"] = True
+            item["removable"] = service_config.is_from_db(spec.key)
+            if spec.category not in by_category:
+                by_category[spec.category] = []
+                order.append(spec.category)
+            by_category[spec.category].append(item)
+        for category in order:
+            groups.append({"category": category, "items": by_category[category]})
+        custom_items = []
+        for row in SystemConfig.query.order_by(SystemConfig.key).all():
+            if row.key in known_keys:
+                continue
+            item = service_config.resolve_for_display(row.key)
+            item["editable"] = False
+            item["removable"] = True
+            custom_items.append(item)
+        if custom_items:
+            groups.append({"category": "自定义参数", "items": custom_items})
+        return groups
+
+    @app.route("/admin/service-config")
+    @login_required
+    @admin_required
+    def service_config_list() -> str:
+        def display_value(item: dict[str, Any]) -> str:
+            value = item["value"]
+            spec = item["spec"]
+            if spec and spec.secret:
+                return service_config.mask_value(value)
+            return value or "未配置"
+
+        return render_template(
+            "admin/service_config.html",
+            groups=service_config_groups(),
+            display_value=display_value,
+        )
+
+    @app.route("/admin/service-config/edit", methods=["GET", "POST"])
+    @login_required
+    @admin_required
+    def edit_service_config() -> str:
+        key = (request.args.get("key") or request.form.get("key") or "").strip().upper()
+        if not key or len(key) > 120:
+            flash("配置参数名无效。", "danger")
+            return redirect(url_for("service_config_list"))
+        spec = service_config.get_spec(key)
+        if request.method == "POST":
+            value = request.form.get("value", "")
+            if spec and spec.secret and not value.strip() and service_config.is_from_db(key):
+                flash("密钥类参数留空时不会覆盖原值；如需清除请使用删除按钮。", "warning")
+            else:
+                service_config.set_config(key, value, current_user.id)
+                flash(f'参数 "{key}" 已保存。', "success")
+                return redirect(url_for("service_config_list"))
+        current = service_config.resolve_for_display(key)
+        return render_template("admin/edit_service_config.html", item=current, key=key)
+
+    @app.route("/admin/service-config/delete/<key>", methods=["POST"])
+    @login_required
+    @admin_required
+    def delete_service_config(key: str) -> Response:
+        service_config.delete_config(key.strip().upper())
+        flash(f'参数 "{key}" 已删除，将回退到环境变量或默认值。', "success")
+        return redirect(url_for("service_config_list"))
+
     @app.route("/api/login", methods=["POST"])
     def api_login() -> Response:
         data = request.get_json()
@@ -1026,13 +1368,107 @@ def register_routes(app: Flask, deps: AppDeps) -> None:
             return jsonify({"message": "登录成功", "token": user.api_token})
         return jsonify({"message": "用户名或密码错误"}), 401
 
+    def project_prototypes_payload(project: Project) -> list[dict[str, Any]]:
+        """列出项目内可被扩展「替换更新」的原型。"""
+
+        protos = Prototype.query.filter_by(project_id=project.id).order_by(desc(Prototype.updated_at)).all()
+        return [
+            {
+                "id": p.id,
+                "name": p.name,
+                "is_public": bool(p.is_public),
+                "has_access_password": bool(p.access_password),
+                "resource_type": p.resource_type,
+            }
+            for p in protos[:100]
+        ]
+
     @app.route("/api/projects", methods=["GET"])
     @token_required
     def api_projects() -> Response:
         all_projects = Project.query.order_by(desc(Project.created_at)).all()
         visible_projects = [p for p in all_projects if has_edit_permission_project(p)]
-        projects_data = [{"id": p.id, "name": p.name} for p in visible_projects]
+        projects_data = [
+            {
+                "id": p.id,
+                "name": p.name,
+                "owner": p.owner.username if p.owner else "",
+                "is_owner": p.owner_id == current_user.id,
+                "prototype_count": len(p.prototypes),
+                "prototypes": project_prototypes_payload(p),
+            }
+            for p in visible_projects
+        ]
         return jsonify({"projects": projects_data})
+
+    @app.route("/api/projects", methods=["POST"])
+    @token_required
+    def api_create_project() -> Response:
+        payload = request.get_json(silent=True) or {}
+        name = str(payload.get("name") or request.form.get("name") or "").strip()
+        if not name:
+            return jsonify({"message": "项目名称不能为空"}), 400
+        if len(name) > 120:
+            return jsonify({"message": "项目名称过长（最多 120 个字符）"}), 400
+
+        existing = Project.query.filter_by(name=name).first()
+        if existing:
+            if not has_edit_permission_project(existing):
+                owner_name = existing.owner.username if existing.owner else "未知用户"
+                return jsonify(
+                    {"message": f"已存在同名项目“{name}”（所有者：{owner_name}），您没有该项目的管理权限"}
+                ), 403
+            return jsonify(
+                {
+                    "message": f'项目 "{name}" 已存在，直接使用该项目',
+                    "id": existing.id,
+                    "name": existing.name,
+                    "created": False,
+                    "prototypes": project_prototypes_payload(existing),
+                }
+            )
+
+        project = Project(name=name, owner_id=current_user.id)
+        db.session.add(project)
+        db.session.commit()
+        return jsonify(
+            {
+                "message": f'项目 "{name}" 创建成功',
+                "id": project.id,
+                "name": project.name,
+                "created": True,
+                "prototypes": [],
+            }
+        ), 201
+
+    @app.route("/api/profile", methods=["GET"])
+    @token_required
+    def api_profile() -> Response:
+        editable_projects = [
+            p for p in Project.query.order_by(desc(Project.created_at)).all() if has_edit_permission_project(p)
+        ]
+        return jsonify(
+            {
+                "username": current_user.username,
+                "role": current_user.role,
+                "is_admin": current_user.role == "admin",
+                "project_count": len(editable_projects),
+                "prototype_count": Prototype.query.filter_by(owner_id=current_user.id).count(),
+                "can_create_project": True,
+            }
+        )
+
+    @app.route("/api/extension/config", methods=["GET"])
+    def api_extension_config() -> Response:
+        """浏览器扩展接入信息：服务器地址由后台「服务配置 → 站点访问地址」下发。"""
+
+        configured = get_service_config("SITE_BASE_URL", "").rstrip("/")
+        return jsonify(
+            {
+                "server_url": configured or request.host_url.rstrip("/"),
+                "server_url_source": "SITE_BASE_URL" if configured else "request",
+            }
+        )
 
     @app.route("/api/upload", methods=["POST"])
     @token_required
@@ -1097,6 +1533,10 @@ def register_routes(app: Flask, deps: AppDeps) -> None:
 
         project_id_str = request.form.get("project_id") or request.args.get("project_id")
         project_id = int(project_id_str) if project_id_str and project_id_str != "None" and project_id_str.isdigit() else None
+        resource_type = str(request.form.get("resource_type") or request.args.get("resource_type") or "axure").strip()
+        if resource_type not in {"axure", "static"}:
+            resource_type = "axure"
+        target_url = str(request.form.get("target_url") or request.args.get("target_url") or "").strip() or None
         if project_id is not None:
             project = db.session.get(Project, project_id)
             if not project or not has_edit_permission_project(project):
@@ -1193,8 +1633,8 @@ def register_routes(app: Flask, deps: AppDeps) -> None:
             # 不存在同名原型，创建新原型
             proto = Prototype(
                 name=name,
-                owner_id=user.id,
-                updater_id=user.id,
+                owner_id=current_user.id,
+                updater_id=current_user.id,
                 project_id=project_id,
                 resource_type=resource_type,
                 target_url=target_url,
@@ -1275,7 +1715,7 @@ def register_routes(app: Flask, deps: AppDeps) -> None:
         project_rules_text = deps.ai_service.load_project_rules_text()
         page_rule_text = deps.ai_service.get_page_rule_text(proto.id, page_path)
         try:
-            need_chunks = os.environ.get("SILICONFLOW_API_KEY", "").strip() != "" and deps.ai_service.count_rule_chunks(
+            need_chunks = get_service_config("SILICONFLOW_API_KEY") != "" and deps.ai_service.count_rule_chunks(
                 proto.id, page_path
             ) == 0
             if not page_rule_text or need_chunks:
@@ -1338,7 +1778,7 @@ def register_routes(app: Flask, deps: AppDeps) -> None:
 请开始处理以下查询。
             """
         )
-        if not os.environ.get("MAIN_AI_API_KEY", "").strip():
+        if not get_service_config("MAIN_AI_API_KEY"):
             if retrieved_chunks_any_page:
                 return jsonify({"answer": "\n\n".join([t for _, t in retrieved_chunks_any_page])})
             if retrieved_chunks_current_page:
@@ -1391,7 +1831,7 @@ def register_routes(app: Flask, deps: AppDeps) -> None:
         project_rules_text = deps.ai_service.load_project_rules_text()
         page_rule_text = deps.ai_service.get_page_rule_text(proto.id, page_path)
         try:
-            need_chunks = os.environ.get("SILICONFLOW_API_KEY", "").strip() != "" and deps.ai_service.count_rule_chunks(
+            need_chunks = get_service_config("SILICONFLOW_API_KEY") != "" and deps.ai_service.count_rule_chunks(
                 proto.id, page_path
             ) == 0
             if not page_rule_text or need_chunks:
@@ -1456,7 +1896,7 @@ def register_routes(app: Flask, deps: AppDeps) -> None:
         )
 
         fallback_answer = ""
-        if not os.environ.get("MAIN_AI_API_KEY", "").strip():
+        if not get_service_config("MAIN_AI_API_KEY"):
             if retrieved_chunks_any_page:
                 fallback_answer = "\n\n".join([t for _, t in retrieved_chunks_any_page])
             elif retrieved_chunks_current_page:

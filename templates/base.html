@@ -6,7 +6,7 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='bootstrap.min.css') }}">
     <link rel="icon" type="image/x-icon" href="{{ url_for('static', filename='favicon.ico') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/all.min.css') }}">
-    <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}?v=2.2">
+    <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}?v=2.5">
     <title>{% block title %}Axure 原型托管{% endblock %}</title>
 </head>
 <body>
@@ -25,6 +25,7 @@
                     {% if current_user.is_authenticated and current_user.role == 'admin' %}
                     <li class="nav-item"><a class="nav-link" href="{{ url_for('user_list') }}">用户管理</a></li>
                     <li class="nav-item"><a class="nav-link" href="{{ url_for('group_list') }}">用户组管理</a></li>
+                    <li class="nav-item"><a class="nav-link" href="{{ url_for('service_config_list') }}">服务配置</a></li>
                     {% endif %}
                 </ul>
                 <ul class="navbar-nav ms-auto">

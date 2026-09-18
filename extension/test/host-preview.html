@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>加载预览…</title>
+  </head>
+  <body>
+    <script src="chrome-stub.js"></script>
+    <script>
+      /* 借用真实页面（?page=popup|login）的标记与脚本，在普通标签页里预览扩展弹窗/登录窗。 */
+      (async function () {
+        var page = new URL(location.href).searchParams.get("page") || "popup";
+        var html = await (await fetch("../" + page + ".html", { cache: "no-store" })).text();
+        var parsed = new DOMParser().parseFromString(html, "text/html");
+        parsed.querySelectorAll("link[rel=stylesheet]").forEach(function (link) {
+          var el = document.createElement("link");
+          el.rel = "stylesheet";
+          el.href = "../" + link.getAttribute("href");
+          document.head.appendChild(el);
+        });
+        var scripts = [].map.call(parsed.body.querySelectorAll("script"), function (s) {
+          return s.getAttribute("src");
+        });
+        parsed.body.querySelectorAll("script").forEach(function (s) { s.remove(); });
+        while (document.body.firstChild) document.body.removeChild(document.body.firstChild);
+        [].forEach.call(parsed.body.childNodes, function (node) {
+          document.body.appendChild(document.importNode(node, true));
+        });
+        if (page === "popup") {
+          document.body.style.padding = "0 12px 12px";
+          document.body.style.background = "#f2f4f8";
+        }
+        for (const src of scripts) {
+          await new Promise(function (resolve, reject) {
+            var el = document.createElement("script");
+            el.src = "../" + src;
+            el.onload = resolve;
+            el.onerror = function () { reject(new Error("加载失败 " + src)); };
+            document.body.appendChild(el);
+          });
+        }
+        document.title = parsed.title + "（假数据预览）";
+      })().catch(function (e) {
+        document.body.textContent = "预览加载失败：" + (e && e.message);
+      });
+    </script>
+  </body>
+</html>

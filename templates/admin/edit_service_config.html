@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}编辑服务配置{% endblock %}
+{% block content %}
+    <div class="page-header">
+        <h2 class="page-title">
+            {% if item.spec %}{{ item.spec.label }}{% else %}新增自定义参数{% endif %}
+        </h2>
+        <div class="page-actions">
+            <a href="{{ url_for('service_config_list') }}" class="btn btn-secondary page-back">返回列表</a>
+        </div>
+    </div>
+    <div class="app-card">
+        <form method="post" action="{{ url_for('edit_service_config') }}">
+            <div class="mb-3">
+                <label class="form-label">参数名</label>
+                {% if item.spec or item.stored_value %}
+                    <input type="hidden" name="key" value="{{ key }}">
+                    <input type="text" class="form-control" value="{{ key }}" readonly>
+                {% else %}
+                    <input type="text" name="key" value="{{ key }}" class="form-control" required maxlength="120" pattern="[A-Za-z0-9_.\-]+" placeholder="例如：SMTP_HOST">
+                    <div class="form-text">仅允许字母、数字、下划线、点和中划线。</div>
+                {% endif %}
+            </div>
+            {% if item.spec and item.spec.help_text %}
+            <div class="mb-3 text-muted small">{{ item.spec.help_text }}</div>
+            {% endif %}
+            <div class="mb-3">
+                <label class="form-label">参数值</label>
+                {% if item.spec and item.spec.secret %}
+                    <input type="password" name="value" class="form-control" autocomplete="new-password"
+                           {% if item.stored_value %}placeholder="已配置（{{ item.stored_value|length }} 个字符），留空则保持不变"{% else %}placeholder="{{ item.spec.placeholder }}"{% endif %}>
+                    {% if item.stored_value %}
+                    <div class="form-text">当前值：{{ item.spec.label }} 已存于数据库，出于安全不回显；提交新值将覆盖。</div>
+                    {% endif %}
+                {% else %}
+                    <textarea name="value" class="form-control" rows="3" placeholder="{{ item.spec.placeholder if item.spec else '' }}">{{ item.stored_value }}</textarea>
+                {% endif %}
+            </div>
+            {% if item.source != 'db' and item.value %}
+            <div class="alert alert-info">
+                当前生效值来自 {% if item.source.startswith('env:') %}环境变量 <code>{{ item.source[4:] }}</code>{% else %}默认配置{% endif %}（非敏感参数会回显）。保存后将以数据库配置为准。
+            </div>
+            {% endif %}
+            <button type="submit" class="btn btn-primary">保存</button>
+        </form>
+    </div>
+{% endblock %}

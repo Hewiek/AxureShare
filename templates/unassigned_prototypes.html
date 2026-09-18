@@ -40,6 +40,9 @@
                                 <a href="{{ url_for('view_prototype', short_id=hashids.encode(proto.id)) }}" target="_blank" class="text-btn">查看</a>
                                 {% if has_edit_permission(proto) %}
                                 <a href="{{ url_for('edit_prototype', proto_id=proto.id) }}" class="text-btn" data-drawer-trigger data-title="编辑原型">编辑</a>
+                                <a href="{{ url_for('prototype_share', proto_id=proto.id) }}" class="text-btn" data-modal-trigger data-title="分享">分享</a>
+                                <a href="{{ url_for('prototype_permissions', proto_id=proto.id) }}" class="text-btn" data-modal-trigger data-title="权限设置">权限</a>
+                                <a href="{{ url_for('prototype_update_method', proto_id=proto.id) }}" class="text-btn" data-modal-trigger data-title="选择更新方式">更新</a>
                                 {% if proto.source_filename %}
                                 <a href="{{ url_for('download_source', proto_id=proto.id) }}" class="text-btn">下载源文件</a>
                                 {% endif %}

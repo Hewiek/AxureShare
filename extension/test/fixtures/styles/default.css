@@ -1,0 +1,7 @@
+/* Axure 默认组件样式 */
+#base {
+  background: #fff;
+}
+.ax_unvisible {
+  display: none;
+}

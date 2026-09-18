@@ -61,3 +61,6 @@ temp.db
 node_modules/
 package-lock.json
 yarn.lock
+
+# 本地截图预览产物
+dist/preview/

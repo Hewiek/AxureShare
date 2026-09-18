@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Iterator
 
+from app.services.service_config import get_config
 from app.utils.html_rules import extract_rule_text_from_html, inject_ai_widget_into_html, iter_html_files
 from app.utils.http_json import http_json_post
 from app.utils.path_security import is_within_directory
@@ -382,11 +383,11 @@ class AiService:
     def embed_text(self, text: str) -> list[float]:
         """调用向量模型获取文本 embedding。"""
 
-        api_key = os.environ.get("SILICONFLOW_API_KEY", "").strip()
+        api_key = get_config("SILICONFLOW_API_KEY")
         if not api_key:
             return []
-        base_url = os.environ.get("SILICONFLOW_BASE_URL", "https://api.siliconflow.cn/v1").rstrip("/")
-        model = os.environ.get("EMBEDDING_MODEL", "BAAI/bge-m3").strip() or "BAAI/bge-m3"
+        base_url = get_config("SILICONFLOW_BASE_URL", "https://api.siliconflow.cn/v1").rstrip("/")
+        model = get_config("EMBEDDING_MODEL", "BAAI/bge-m3")
         url = f"{base_url}/embeddings"
         resp = http_json_post(
             url=url,
@@ -407,11 +408,11 @@ class AiService:
     def call_main_ai(self, system_prompt: str, knowledge_text: str, question: str) -> str:
         """调用主模型进行回答。"""
 
-        api_key = os.environ.get("MAIN_AI_API_KEY", "").strip()
+        api_key = get_config("MAIN_AI_API_KEY")
         if not api_key:
             return _default_answer()
-        base_url = os.environ.get("MAIN_AI_BASE_URL", "https://api.xiaomimimo.com/v1").rstrip("/")
-        model = (os.environ.get("MAIN_AI_MODEL") or os.environ.get("AIN_AI_MODEL") or "mimo-v2-flash").strip() or "mimo-v2-flash"
+        base_url = get_config("MAIN_AI_BASE_URL", "https://api.xiaomimimo.com/v1").rstrip("/")
+        model = get_config("MAIN_AI_MODEL", "mimo-v2-flash")
         url = f"{base_url}/chat/completions"
         user_content = f"《项目知识库》：\n{knowledge_text}\n\n用户问题：\n{question}"
         resp = http_json_post(
@@ -441,13 +442,13 @@ class AiService:
     def call_main_ai_stream(self, system_prompt: str, knowledge_text: str, question: str) -> Iterator[str]:
         """以流式方式调用主模型进行回答。"""
 
-        api_key = os.environ.get("MAIN_AI_API_KEY", "").strip()
+        api_key = get_config("MAIN_AI_API_KEY")
         if not api_key:
             yield from _chunk_for_stream(_default_answer())
             return
 
-        base_url = os.environ.get("MAIN_AI_BASE_URL", "https://api.xiaomimimo.com/v1").rstrip("/")
-        model = (os.environ.get("MAIN_AI_MODEL") or os.environ.get("AIN_AI_MODEL") or "mimo-v2-flash").strip() or "mimo-v2-flash"
+        base_url = get_config("MAIN_AI_BASE_URL", "https://api.xiaomimimo.com/v1").rstrip("/")
+        model = get_config("MAIN_AI_MODEL", "mimo-v2-flash")
         url = f"{base_url}/chat/completions"
         user_content = f"《项目知识库》：\n{knowledge_text}\n\n用户问题：\n{question}"
         payload: dict[str, Any] = {

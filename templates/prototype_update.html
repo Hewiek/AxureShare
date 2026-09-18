@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}选择更新方式{% endblock %}
+{% block content %}
+<div class="app-card update-modal">
+    <div class="page-header">
+        <h4 class="page-title">选择更新方式 · {{ proto.name }}</h4>
+    </div>
+    <div class="update-cards">
+        <div class="update-card">
+            <div class="uc-title">扩展同步</div>
+            <div class="uc-icon"><i class="fas fa-sync-alt"></i></div>
+            <div class="uc-desc">通过 Chrome 扩展同步原型，<br><strong class="uc-hl">效率最高</strong></div>
+            <div class="uc-steps">
+                <div class="uc-step">1. <a href="{{ url_for('extension_download') }}">下载扩展包</a>，解压后在 chrome://extensions 开启开发者模式并「加载已解压的扩展程序」</div>
+                <div class="uc-step">2. 在扩展中填写服务器地址与你的 API Token（<a href="{{ url_for('user_profile') }}">个人资料</a>页可查看）</div>
+                <div class="uc-step">3. 打开 Axure 预览页，点击扩展中的「同步」即可覆盖本原型</div>
+            </div>
+            <div class="uc-config">
+                <div><span class="uc-config-label">服务器地址</span><code id="uc-server">{{ server_url }}</code></div>
+                <div><span class="uc-config-label">API Token</span><code id="uc-token">{{ api_token }}</code></div>
+            </div>
+        </div>
+        <a class="update-card" href="{{ url_for('edit_prototype', proto_id=proto.id) }}" data-drawer-trigger data-title="编辑原型">
+            <div class="uc-title">上传 rp 文件</div>
+            <div class="uc-icon"><i class="fas fa-upload"></i></div>
+            <div class="uc-desc">支持 <strong>拖拽/上传 rp 文件</strong> 更新，<br>容易上手</div>
+            <div class="uc-steps">
+                <div class="uc-step">在编辑抽屉的「源文件」区域拖入新的 .rp 文件并保存</div>
+                <div class="uc-step">如需更新页面内容，请同时上传新的原型压缩包 (.zip)</div>
+            </div>
+        </a>
+    </div>
+</div>
+<script>
+    (function () {
+        ['uc-server', 'uc-token'].forEach(function (id) {
+            var el = document.getElementById(id);
+            if (!el) return;
+            el.style.cursor = 'pointer';
+            el.title = '点击复制';
+            el.addEventListener('click', function () {
+                var text = el.textContent.trim();
+                if (navigator.clipboard && window.isSecureContext) {
+                    navigator.clipboard.writeText(text);
+                } else {
+                    var ta = document.createElement('textarea');
+                    ta.value = text; document.body.appendChild(ta); ta.select();
+                    document.execCommand('copy'); document.body.removeChild(ta);
+                }
+                el.style.color = '#16a34a';
+                setTimeout(function () { el.style.color = ''; }, 800);
+            });
+        });
+        var drawerLink = document.querySelector('.update-modal [data-drawer-trigger]');
+        if (drawerLink) {
+            drawerLink.addEventListener('click', function (e) {
+                e.preventDefault();
+                if (typeof closeDrawer === 'function') closeDrawer();
+                if (typeof openDrawer === 'function') openDrawer(drawerLink.getAttribute('href'), '编辑原型');
+            });
+        }
+    })();
+</script>
+{% endblock %}

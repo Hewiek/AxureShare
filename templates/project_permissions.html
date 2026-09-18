@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% macro permission_segment(field_name, current) %}
+<div class="permission-segment" role="group">
+    {% for value, label in [('none', '无'), ('view', '查看'), ('edit', '编辑'), ('both', '查看+编辑')] %}
+    <input type="radio" class="btn-check" name="{{ field_name }}" id="{{ field_name }}_{{ value }}" value="{{ value }}" {% if current == value %}checked{% endif %}>
+    <label class="btn btn-sm segment-{{ value }}" for="{{ field_name }}_{{ value }}">{{ label }}</label>
+    {% endfor %}
+</div>
+{% endmacro %}
+
+{% block title %}协作权限{% endblock %}
+{% block content %}
+<div class="app-card permission-modal">
+    <div class="page-header">
+        <h4 class="page-title">协作权限</h4>
+    </div>
+    <p class="text-muted mb-2">项目：<strong>{{ project.name }}</strong></p>
+    <p class="text-muted small">项目权限将继承给项目内的所有原型。所有者（{{ project.owner.username }}）与管理员默认拥有全部权限，无需单独设置。</p>
+
+    <form method="post" action="{{ url_for('project_permissions', project_id=project.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+        <ul class="nav nav-tabs permission-tabs" role="tablist">
+            <li class="nav-item" role="presentation">
+                <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#perm-users" type="button" role="tab">
+                    用户 <span class="badge badge-secondary">{{ users|length }}</span>
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" data-bs-toggle="tab" data-bs-target="#perm-groups" type="button" role="tab">
+                    用户组 <span class="badge badge-secondary">{{ groups|length }}</span>
+                </button>
+            </li>
+        </ul>
+
+        <div class="tab-content pt-3">
+            <div class="tab-pane fade show active" id="perm-users" role="tabpanel">
+                <input type="text" class="form-control form-control-sm permission-search mb-2" placeholder="搜索用户…" data-permission-filter="#perm-users">
+                <div class="permission-list">
+                    {% if users %}
+                    {% for user in users %}
+                    <div class="permission-row" data-search="{{ user.username|lower }}">
+                        <span class="permission-name" title="{{ user.username }}"><i class="fas fa-user fa-fw me-1 text-muted"></i>{{ user.username }}</span>
+                        {{ permission_segment('user_%d'|format(user.id), user_levels['user_%d'|format(user.id)]) }}
+                    </div>
+                    {% endfor %}
+                    {% else %}
+                    <div class="text-center text-muted py-4">暂无其他用户</div>
+                    {% endif %}
+                </div>
+            </div>
+            <div class="tab-pane fade" id="perm-groups" role="tabpanel">
+                <input type="text" class="form-control form-control-sm permission-search mb-2" placeholder="搜索用户组…" data-permission-filter="#perm-groups">
+                <div class="permission-list">
+                    {% if groups %}
+                    {% for group in groups %}
+                    <div class="permission-row" data-search="{{ group.name|lower }}">
+                        <span class="permission-name" title="{{ group.name }}"><i class="fas fa-users fa-fw me-1 text-muted"></i>{{ group.name }}</span>
+                        {{ permission_segment('group_%d'|format(group.id), group_levels['group_%d'|format(group.id)]) }}
+                    </div>
+                    {% endfor %}
+                    {% else %}
+                    <div class="text-center text-muted py-4">暂无用户组</div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <div class="d-flex justify-content-end mt-3">
+            <button type="submit" class="btn btn-primary"><i class="fas fa-save me-1"></i>保存权限</button>
+        </div>
+    </form>
+</div>
+
+<script>
+    (function () {
+        document.querySelectorAll('[data-permission-filter]').forEach(function (input) {
+            input.addEventListener('input', function () {
+                const keyword = input.value.trim().toLowerCase();
+                document.querySelectorAll(input.dataset.permissionFilter + ' .permission-row').forEach(function (row) {
+                    row.style.display = !keyword || row.dataset.search.indexOf(keyword) !== -1 ? '' : 'none';
+                });
+            });
+        });
+    })();
+</script>
+{% endblock %}
