@@ -16,7 +16,7 @@ from functools import wraps
 from pathlib import Path
 from typing import Any, Callable, TypeVar
 
-from flask import Flask, Response, abort, flash, jsonify, redirect, render_template, request, send_file, session, url_for
+from flask import Flask, Response, abort, flash, jsonify, make_response, redirect, render_template, request, send_file, session, url_for
 from flask_login import current_user, login_required, login_user, logout_user
 from flask_wtf.csrf import generate_csrf
 from sqlalchemy import desc, exc
@@ -39,6 +39,7 @@ from app.forms import (
 from app.models import Group, Project, Prototype, PrototypeAttachment, SystemConfig, User, ViewLog
 from app.permissions import admin_required, has_edit_permission, has_edit_permission_project, has_view_permission, has_view_permission_project
 from app.services import service_config
+from app.services.prototype_files import PrototypeFilesService
 from app.services.prototype_files import ZipFileInvalidError
 from app.services.service_config import get_config as get_service_config
 from app.utils.html_rules import (
@@ -117,34 +118,23 @@ def register_routes(app: Flask, deps: AppDeps) -> None:
     @app.route("/")
     @login_required
     def dashboard() -> str:
-        all_projects = Project.query.options(joinedload(Project.prototypes)).order_by(desc(Project.name)).all()
-        visible_projects = [p for p in all_projects if has_view_permission_project(p)]
+        all_protos = Prototype.query.options(joinedload(Prototype.project)).order_by(desc(Prototype.updated_at)).all()
+        visible_prototypes = [p for p in all_protos if has_view_permission(p)]
         uploads_root = Path(app.config["UPLOAD_FOLDER"])
         used_bytes = sum(int(entry.stat().st_size) for entry in uploads_root.rglob("*") if entry.is_file()) if uploads_root.is_dir() else 0
         quota_mb = int(get_service_config("STORAGE_QUOTA_MB", "1024") or 1024)
         used_mb = round(used_bytes / 1024 / 1024, 2)
         return render_template(
             "dashboard.html",
-            projects=visible_projects,
-            has_edit_permission_project=has_edit_permission_project,
+            prototypes=visible_prototypes,
+            has_edit_permission=has_edit_permission,
+            hashids=deps.hashids,
             storage={
                 "quota_mb": quota_mb,
                 "used_mb": used_mb,
-                "free_mb": round(max(quota_mb - used_mb, 0), 2),
+                "free_bytes": deps.prototype_files_service.available_upload_bytes(),
                 "used_pct": round(used_mb / quota_mb * 100, 1) if quota_mb else 100,
             },
-        )
-
-    @app.route("/prototypes/unassigned")
-    @login_required
-    def unassigned_prototypes() -> str:
-        items = Prototype.query.filter(Prototype.project_id.is_(None)).order_by(desc(Prototype.name)).all()
-        visible_unassigned = [p for p in items if has_view_permission(p)]
-        return render_template(
-            "unassigned_prototypes.html",
-            prototypes=visible_unassigned,
-            has_edit_permission=has_edit_permission,
-            hashids=deps.hashids,
         )
 
     @app.route("/login", methods=["GET", "POST"])
@@ -325,6 +315,20 @@ def register_routes(app: Flask, deps: AppDeps) -> None:
                 if not project or not has_edit_permission_project(project):
                     flash("没有权限上传到该项目。", "danger")
                     return redirect(url_for("upload"))
+
+            incoming_bytes = 0
+            for attach_file in request.files.getlist("attachment_files"):
+                if attach_file and attach_file.filename:
+                    incoming_bytes += _file_storage_size(attach_file)
+            if form.source_file.data:
+                incoming_bytes += _file_storage_size(form.source_file.data)
+            if form.zip_file.data:
+                incoming_bytes += _zip_uncompressed_size(form.zip_file.data)
+            space_error = check_upload_space(current_user.id, incoming_bytes)
+            if space_error:
+                flash(space_error, "danger")
+                return redirect(url_for("upload"))
+
             proto = Prototype(
                 name=form.name.data,
                 project_id=project_id,
@@ -416,6 +420,19 @@ def register_routes(app: Flask, deps: AppDeps) -> None:
                 pass
 
         if form.validate_on_submit():
+            incoming_bytes = 0
+            for attach_file in request.files.getlist("attachment_files"):
+                if attach_file and attach_file.filename:
+                    incoming_bytes += _file_storage_size(attach_file)
+            if form.source_file.data:
+                incoming_bytes += _file_storage_size(form.source_file.data)
+            if form.zip_file.data:
+                incoming_bytes += _zip_uncompressed_size(form.zip_file.data)
+            space_error = check_upload_space(current_user.id, incoming_bytes)
+            if space_error:
+                flash(space_error, "danger")
+                return redirect(url_for("edit_prototype", proto_id=proto.id))
+
             proto.name = form.name.data
             proto.resource_type = form.resource_type.data
             proto.target_url = form.target_url.data
@@ -505,7 +522,7 @@ def register_routes(app: Flask, deps: AppDeps) -> None:
 
             if keywords_changed and not zip_processed:
                 try:
-                    proto_path = os.path.join(str(app.config["PROTOTYPES_FOLDER"]), proto.uuid)
+                    proto_path = deps.prototype_files_service.prototype_dir(proto.uuid)
                     deps.prototype_service.process_ai(prototype_id=proto.id, proto_path=proto_path)
                     flash("关键词更新，已触发AI重新处理。", "info")
                 except Exception:
@@ -549,7 +566,7 @@ def register_routes(app: Flask, deps: AppDeps) -> None:
             proto.editing_groups = editing_groups
             db.session.commit()
             flash(f'原型 "{proto.name}" 的权限已更新。', "success")
-            return redirect(request.referrer or url_for("unassigned_prototypes"))
+            return redirect(request.referrer or url_for("dashboard"))
 
         def level_of(viewing, editing, item):
             in_view = item in viewing
@@ -584,7 +601,7 @@ def register_routes(app: Flask, deps: AppDeps) -> None:
             abort(403)
 
         short_id = deps.hashids.encode(proto.id)
-        base = get_service_config("SITE_BASE_URL").rstrip("/") or request.host_url.rstrip("/")
+        base = share_base_url()
         share_url = f"{base}{url_for('view_prototype', short_id=short_id)}"
 
         if request.method == "POST":
@@ -599,7 +616,9 @@ def register_routes(app: Flask, deps: AppDeps) -> None:
             flash(f'原型 "{proto.name}" 的分享设置已更新。', "success")
             return redirect(request.referrer or url_for("dashboard"))
 
-        return render_template("prototype_share.html", proto=proto, share_url=share_url, csrf_token=generate_csrf())
+        resp = make_response(render_template("prototype_share.html", proto=proto, share_url=share_url, csrf_token=generate_csrf()))
+        resp.headers["Cache-Control"] = "no-store"
+        return resp
 
     @app.route("/prototype/<int:proto_id>/update-method")
     @login_required
@@ -607,7 +626,7 @@ def register_routes(app: Flask, deps: AppDeps) -> None:
         proto = db.session.get(Prototype, proto_id) or abort(404)
         if not has_edit_permission(proto):
             abort(403)
-        base = get_service_config("SITE_BASE_URL").rstrip("/") or request.host_url.rstrip("/")
+        base = share_base_url()
         return render_template(
             "prototype_update.html", proto=proto, server_url=base, api_token=current_user.api_token
         )
@@ -704,7 +723,7 @@ def register_routes(app: Flask, deps: AppDeps) -> None:
         if not proto.attachment_savename:
             flash("该原型没有附件。", "warning")
             return redirect(request.referrer or url_for("dashboard"))
-        file_path = os.path.join(str(app.config["ATTACHMENTS_FOLDER"]), proto.attachment_savename)
+        file_path = deps.prototype_files_service.resolve_attachment_path(proto.attachment_savename)
         return send_file(file_path, download_name=proto.attachment_filename, as_attachment=True)
 
     @app.route("/download_attachment_item/<int:attachment_id>")
@@ -714,7 +733,7 @@ def register_routes(app: Flask, deps: AppDeps) -> None:
         proto = attachment.prototype
         if not proto or not has_view_permission(proto):
             abort(403)
-        file_path = os.path.join(str(app.config["ATTACHMENTS_FOLDER"]), attachment.savename)
+        file_path = deps.prototype_files_service.resolve_attachment_path(attachment.savename)
         return send_file(file_path, download_name=attachment.filename, as_attachment=True)
 
     @app.route("/download_source/<int:proto_id>")
@@ -726,7 +745,7 @@ def register_routes(app: Flask, deps: AppDeps) -> None:
         if not proto.source_savename:
             flash("该原型没有可供下载的源文件。", "warning")
             return redirect(url_for("dashboard"))
-        file_path = os.path.join(str(app.config["SOURCE_FILES_FOLDER"]), proto.source_savename)
+        file_path = deps.prototype_files_service.resolve_source_path(proto.source_savename)
         return send_file(file_path, download_name=proto.source_filename, as_attachment=True)
 
     @app.route("/preview_attachment/<int:proto_id>")
@@ -747,7 +766,7 @@ def register_routes(app: Flask, deps: AppDeps) -> None:
             abort(403)
         if not proto.attachment_savename:
             abort(404)
-        file_path = os.path.join(str(app.config["ATTACHMENTS_FOLDER"]), proto.attachment_savename)
+        file_path = deps.prototype_files_service.resolve_attachment_path(proto.attachment_savename)
         ext = os.path.splitext(proto.attachment_filename or "")[1].lower().lstrip(".")
         if ext not in {"pdf", "doc", "docx", "ppt", "pptx", "xls", "xlsx"}:
             abort(404)
@@ -772,7 +791,7 @@ def register_routes(app: Flask, deps: AppDeps) -> None:
             if not current_user.is_authenticated:
                 return login_manager.unauthorized()
             abort(403)
-        file_path = os.path.join(str(app.config["ATTACHMENTS_FOLDER"]), attachment.savename)
+        file_path = deps.prototype_files_service.resolve_attachment_path(attachment.savename)
         ext = os.path.splitext(attachment.filename or "")[1].lower().lstrip(".")
         if ext not in {"pdf", "doc", "docx", "ppt", "pptx", "xls", "xlsx"}:
             abort(404)
@@ -797,7 +816,7 @@ def register_routes(app: Flask, deps: AppDeps) -> None:
             abort(403)
         if not proto.source_savename:
             abort(404)
-        file_path = os.path.join(str(app.config["SOURCE_FILES_FOLDER"]), proto.source_savename)
+        file_path = deps.prototype_files_service.resolve_source_path(proto.source_savename)
         ext = os.path.splitext(proto.source_filename or "")[1].lower().lstrip(".")
         if ext not in {"pdf", "doc", "docx", "ppt", "pptx", "xls", "xlsx"}:
             abort(404)
@@ -900,14 +919,14 @@ def register_routes(app: Flask, deps: AppDeps) -> None:
             if not filename or not savename:
                 return None
             if kind == "attachment":
-                base_dir = str(app.config["ATTACHMENTS_FOLDER"])
+                folder_kind = "attachments"
                 download_url = download_url_override or url_for("download_attachment", proto_id=proto.id)
                 preview_url = preview_url_override or url_for("preview_attachment", proto_id=proto.id)
             else:
-                base_dir = str(app.config["SOURCE_FILES_FOLDER"])
+                folder_kind = "source_files"
                 download_url = download_url_override or url_for("download_source", proto_id=proto.id)
                 preview_url = preview_url_override or url_for("preview_source", proto_id=proto.id)
-            file_path = os.path.join(base_dir, savename)
+            file_path = deps.prototype_files_service.existing_local_path(folder_kind, savename)
             size = 0
             try:
                 size = os.path.getsize(file_path)
@@ -923,7 +942,9 @@ def register_routes(app: Flask, deps: AppDeps) -> None:
                 "preview_url": preview_url if previewable else "",
             }
 
-        proto_path = os.path.join(str(app.config["PROTOTYPES_FOLDER"]), proto.uuid)
+        proto_path = deps.prototype_files_service.existing_prototype_dir(proto.uuid) or os.path.join(
+            str(app.config["PROTOTYPES_FOLDER"]), proto.uuid
+        )
         proto_size = folder_size(proto_path)
         attachments: list[dict[str, Any]] = []
         legacy_attachment = file_info(
@@ -953,7 +974,7 @@ def register_routes(app: Flask, deps: AppDeps) -> None:
             "attachment": legacy_attachment or (attachments[0] if attachments else None),
             "attachments": attachments,
             "source": file_info("source", proto.source_filename, proto.source_savename),
-            "prototype_url": url_for("view_prototype", short_id=deps.hashids.encode(proto.id), _external=True),
+            "prototype_url": f"{share_base_url()}{url_for('view_prototype', short_id=deps.hashids.encode(proto.id))}",
             "updated_at_text": format_dt(proto.updated_at or proto.created_at),
             "updater_name": proto.updater.username if proto.updater else (proto.owner.username if proto.owner else "-"),
         }
@@ -1011,7 +1032,7 @@ def register_routes(app: Flask, deps: AppDeps) -> None:
         if filename:
             filename = urllib.parse.unquote(filename).replace("\\", "/").strip("/")
 
-        proto_path = os.path.join(str(app.config["PROTOTYPES_FOLDER"]), proto.uuid)
+        proto_path = deps.prototype_files_service.prototype_dir(proto.uuid)
 
         def render_prototype_html(html_path: str) -> Response | None:
             """按资源类型渲染原型 HTML。"""
@@ -1145,21 +1166,22 @@ def register_routes(app: Flask, deps: AppDeps) -> None:
         proto_count = 0
         for proto in Prototype.query.filter_by(owner_id=user.id).all():
             proto_count += 1
-            html_dir = Path(svc.prototypes_folder) / proto.uuid
-            if html_dir.is_dir():
-                used_bytes += sum(f.stat().st_size for f in html_dir.rglob("*") if f.is_file())
+            html_dir = svc.existing_prototype_dir(proto.uuid)
+            if html_dir and Path(html_dir).is_dir():
+                used_bytes += sum(f.stat().st_size for f in Path(html_dir).rglob("*") if f.is_file())
             if proto.source_savename:
-                used_bytes += file_size(os.path.join(svc.source_files_folder, proto.source_savename))
+                used_bytes += file_size(svc.existing_local_path("source_files", proto.source_savename))
             if proto.attachment_savename:
-                used_bytes += file_size(os.path.join(svc.attachments_folder, proto.attachment_savename))
+                used_bytes += file_size(svc.existing_local_path("attachments", proto.attachment_savename))
             for attachment in proto.attachments:
-                used_bytes += file_size(os.path.join(svc.attachments_folder, attachment.savename))
+                used_bytes += file_size(svc.existing_local_path("attachments", attachment.savename))
         quota_mb = int(get_service_config("STORAGE_QUOTA_MB", "1024") or 1024)
         used_mb = round(used_bytes / (1024 * 1024), 1)
         return {
             "proto_count": proto_count,
             "project_count": Project.query.filter_by(owner_id=user.id).count(),
             "used_mb": used_mb,
+            "used_bytes": used_bytes,
             "quota_mb": quota_mb,
             "used_pct": round(used_mb / quota_mb * 100, 1) if quota_mb else 0,
         }
@@ -1185,6 +1207,72 @@ def register_routes(app: Flask, deps: AppDeps) -> None:
             "admin/profile.html", form=form, stats=build_user_profile_stats(user_to_edit or current_user)
         )
 
+    @app.route("/profile/phone", methods=["POST"])
+    @login_required
+    def profile_update_phone():
+        phone = (request.form.get("phone") or "").strip()
+        user = db.session.get(User, current_user.id)
+        if not re.fullmatch(r"1\d{10}", phone):
+            flash("请输入正确的 11 位手机号。", "danger")
+        else:
+            user.phone = phone
+            db.session.commit()
+            flash("帐号手机已更新。", "success")
+        return redirect(url_for("user_profile"))
+
+    @app.route("/profile/send-code", methods=["POST"])
+    @login_required
+    def profile_send_password_code():
+        channel = request.form.get("channel") or "phone"
+        user = db.session.get(User, current_user.id)
+        if channel != "phone":
+            flash("修改方式不正确。", "danger")
+            return redirect(url_for("user_profile"))
+        target = user.phone
+        if not target:
+            flash("请先绑定帐号手机。", "danger")
+            return redirect(url_for("user_profile", channel=channel))
+        now = datetime.utcnow().timestamp()
+        if now - session.get("pwd_code_sent_at", 0) < 60:
+            flash("发送过于频繁，请 60 秒后再试。", "warning")
+            return redirect(url_for("user_profile", channel=channel))
+        code = f"{random.randint(0, 999999):06d}"
+        session["pwd_code"] = {"channel": channel, "code": code, "expires": now + 300}
+        session["pwd_code_sent_at"] = now
+        app.logger.info("[演示模式] 用户 %s 手机 %s 的验证码：%s", user.username, target, code)
+        flash(f"演示模式（未接入短信网关）：您的验证码为 {code}，5 分钟内有效。", "info")
+        return redirect(url_for("user_profile", channel=channel))
+
+    @app.route("/profile/password", methods=["POST"])
+    @login_required
+    def profile_change_password():
+        channel = request.form.get("channel") or ""
+        code = (request.form.get("code") or "").strip()
+        new_password = request.form.get("new_password") or ""
+        confirm_password = request.form.get("confirm_password") or ""
+        redirect_back = redirect(url_for("user_profile", channel=channel))
+        if len(new_password) < 6:
+            flash("新密码长度至少 6 位。", "danger")
+            return redirect_back
+        if new_password != confirm_password:
+            flash("两次输入的密码不一致。", "danger")
+            return redirect_back
+        data = session.get("pwd_code")
+        now = datetime.utcnow().timestamp()
+        if not data or data.get("channel") != channel or now > data.get("expires", 0):
+            flash("验证码已失效，请重新发送。", "danger")
+            return redirect_back
+        if data.get("code") != code:
+            flash("验证码错误。", "danger")
+            return redirect_back
+        user = db.session.get(User, current_user.id)
+        user.set_password(new_password)
+        session.pop("pwd_code", None)
+        session.pop("pwd_code_sent_at", None)
+        db.session.commit()
+        flash("密码修改成功。", "success")
+        return redirect(url_for("user_profile"))
+
     @app.route("/admin/profile", methods=["GET", "POST"])
     @login_required
     @admin_required
@@ -1205,12 +1293,113 @@ def register_routes(app: Flask, deps: AppDeps) -> None:
                 flash("该用户名已被占用，请选择其他用户名。", "danger")
         return render_template("admin/profile.html", form=form)
 
+    def storage_total_mb() -> int:
+        """可支配总空间（MB），用于用户配额校验。"""
+
+        try:
+            return int(get_service_config("STORAGE_TOTAL_MB", "10240") or 10240)
+        except ValueError:
+            return 10240
+
+    def share_base_url() -> str:
+        """分享链接的基地址，按存储模式区分：
+
+        本地模式：使用当前主机局域网地址（仅同一局域网可访问）。
+        服务器模式：使用 SITE_BASE_URL（公网地址，外网可访问），未配置时回退到当前主机地址。
+        """
+
+        svc = deps.prototype_files_service
+        if svc.storage_mode() == "local":
+            return request.host_url.rstrip("/")
+        base = get_service_config("SITE_BASE_URL", "").strip().rstrip("/")
+        return base or request.host_url.rstrip("/")
+
+    def _file_storage_size(fs: FileStorage) -> int:
+        """获取上传文件的字节数（不消费流，失败返回 0）。"""
+
+        stream = fs.stream
+        try:
+            pos = stream.tell()
+            stream.seek(0, os.SEEK_END)
+            size = stream.tell()
+            stream.seek(pos)
+            return size
+        except (OSError, ValueError):
+            return 0
+
+    def _zip_uncompressed_size(fs: FileStorage) -> int:
+        """计算 ZIP 解压后的总字节数（不消费流，失败返回 0）。"""
+
+        stream = fs.stream
+        try:
+            pos = stream.tell()
+            stream.seek(0)
+            with zipfile.ZipFile(stream, "r") as zf:
+                total = sum(info.file_size for info in zf.infolist())
+            stream.seek(pos)
+            return total
+        except (zipfile.BadZipFile, OSError, ValueError):
+            try:
+                stream.seek(0)
+            except Exception:
+                pass
+            return 0
+
+    def check_upload_space(user_id: int, incoming_bytes: int) -> str | None:
+        """校验上传空间是否充足。不足返回错误消息，充足返回 None。
+
+        本地模式：所有用户共享总空间（STORAGE_TOTAL_MB）。
+        服务器模式：按用户独立配额（User.storage_quota_mb）。
+        """
+
+        svc = deps.prototype_files_service
+        if svc.storage_mode() == "local":
+            used_bytes = svc.total_used_bytes()
+            total_bytes = storage_total_mb() * 1024 * 1024
+            if used_bytes + incoming_bytes > total_bytes:
+                free_mb = round(max(total_bytes - used_bytes, 0) / 1024 / 1024, 1)
+                return (
+                    f"存储空间不足：可支配总空间 {storage_total_mb()} MB，"
+                    f"剩余约 {free_mb} MB，请先删除文件释放空间。"
+                )
+        else:
+            user = db.session.get(User, user_id)
+            if user:
+                quota_mb = int(user.storage_quota_mb or 0)
+                quota_bytes = quota_mb * 1024 * 1024
+                used_bytes = build_user_profile_stats(user)["used_bytes"]
+                if used_bytes + incoming_bytes > quota_bytes:
+                    free_mb = round(max(quota_bytes - used_bytes, 0) / 1024 / 1024, 1)
+                    return (
+                        f"存储空间不足：您的可用空间为 {quota_mb} MB，"
+                        f"剩余约 {free_mb} MB，请先删除文件释放空间。"
+                    )
+        return None
+
     @app.route("/admin/users")
     @login_required
     @admin_required
     def user_list() -> str:
         users = User.query.all()
-        return render_template("admin/users.html", users=users)
+        user_rows = []
+        for user in users:
+            stats = build_user_profile_stats(user)
+            quota_mb = int(user.storage_quota_mb or 0)
+            remaining_mb = max(quota_mb - stats["used_mb"], 0)
+            user_rows.append({
+                "user": user,
+                "quota_mb": quota_mb,
+                "used_mb": stats["used_mb"],
+                "remaining_mb": remaining_mb,
+            })
+        total_mb = storage_total_mb()
+        assigned_mb = sum(int(u.storage_quota_mb or 0) for u in users)
+        return render_template(
+            "admin/users.html",
+            user_rows=user_rows,
+            total_mb=total_mb,
+            assigned_mb=assigned_mb,
+        )
 
     @app.route("/admin/users/create", methods=["GET", "POST"])
     @login_required
@@ -1221,12 +1410,17 @@ def register_routes(app: Flask, deps: AppDeps) -> None:
             if User.query.filter_by(username=form.username.data).first():
                 flash("用户名已存在。", "danger")
             else:
-                user = User(username=form.username.data)
-                user.set_password(form.password.data)
-                db.session.add(user)
-                db.session.commit()
-                flash(f"用户 {user.username} 创建成功。", "success")
-                return redirect(url_for("user_list"))
+                quota_mb = int(form.storage_quota_mb.data or 0)
+                assigned_mb = sum(int(u.storage_quota_mb or 0) for u in User.query.all())
+                if assigned_mb + quota_mb > storage_total_mb():
+                    flash(f"所有用户可用空间之和不能超过可支配总空间 {storage_total_mb()} MB。", "danger")
+                else:
+                    user = User(username=form.username.data, storage_quota_mb=quota_mb)
+                    user.set_password(form.password.data)
+                    db.session.add(user)
+                    db.session.commit()
+                    flash(f"用户 {user.username} 创建成功。", "success")
+                    return redirect(url_for("user_list"))
         return render_template("admin/create_user.html", form=form)
 
     @app.route("/admin/users/edit/<int:user_id>", methods=["GET", "POST"])
@@ -1234,12 +1428,18 @@ def register_routes(app: Flask, deps: AppDeps) -> None:
     @admin_required
     def edit_user(user_id: int) -> str:
         user = db.session.get(User, user_id) or abort(404)
-        form = EditUserForm()
+        form = EditUserForm(obj=user)
         if form.validate_on_submit():
             if form.password.data:
                 user.set_password(form.password.data)
+            new_quota = int(form.storage_quota_mb.data or 0)
+            assigned_mb = sum(int(u.storage_quota_mb or 0) for u in User.query.filter(User.id != user.id).all())
+            if assigned_mb + new_quota > storage_total_mb():
+                flash(f"所有用户可用空间之和不能超过可支配总空间 {storage_total_mb()} MB。", "danger")
+            else:
+                user.storage_quota_mb = new_quota
                 db.session.commit()
-                flash(f"用户 {user.username} 的密码已更新。", "success")
+                flash(f"用户 {user.username} 的信息已更新。", "success")
                 return redirect(url_for("user_list"))
         return render_template("admin/edit_user.html", form=form, user=user)
 
@@ -1282,12 +1482,25 @@ def register_routes(app: Flask, deps: AppDeps) -> None:
         all_users = User.query.filter_by(role="user").order_by(User.username).all()
         return render_template("admin/edit_group.html", form=form, group=group, users=all_users)
 
+    STORAGE_KEYS = {
+        "STORAGE_MODE",
+        "STORAGE_LOCAL_FOLDER",
+        "SFTP_HOST",
+        "SFTP_PORT",
+        "SFTP_USER",
+        "SFTP_PASSWORD",
+        "SFTP_REMOTE_DIR",
+        "STORAGE_TOTAL_MB",
+    }
+
     def service_config_groups() -> list[dict[str, Any]]:
         known_keys = {spec.key for spec in service_config.KNOWN_CONFIGS}
         groups: list[dict[str, Any]] = []
         by_category: dict[str, list[dict[str, Any]]] = {}
         order: list[str] = []
         for spec in service_config.KNOWN_CONFIGS:
+            if spec.key in STORAGE_KEYS:
+                continue
             item = service_config.resolve_for_display(spec.key)
             item["editable"] = True
             item["removable"] = service_config.is_from_db(spec.key)
@@ -1320,11 +1533,63 @@ def register_routes(app: Flask, deps: AppDeps) -> None:
                 return service_config.mask_value(value)
             return value or "未配置"
 
+        storage = {
+            "mode": get_service_config("STORAGE_MODE", "local"),
+            "local_folder": get_service_config("STORAGE_LOCAL_FOLDER"),
+            "sftp_host": get_service_config("SFTP_HOST"),
+            "sftp_port": get_service_config("SFTP_PORT", "22"),
+            "sftp_user": get_service_config("SFTP_USER"),
+            "sftp_remote_dir": get_service_config("SFTP_REMOTE_DIR"),
+            "total_mb": get_service_config("STORAGE_TOTAL_MB", "10240"),
+        }
         return render_template(
             "admin/service_config.html",
             groups=service_config_groups(),
             display_value=display_value,
+            storage=storage,
         )
+
+    @app.route("/admin/service-config/storage", methods=["POST"])
+    @login_required
+    @admin_required
+    def save_storage_config() -> Response:
+        mode = (request.form.get("storage_mode") or "local").strip().lower()
+        if mode not in ("local", "sftp"):
+            flash("存储方式无效。", "danger")
+            return redirect(url_for("service_config_list"))
+        service_config.set_config("STORAGE_MODE", mode, current_user.id)
+
+        total_mb = (request.form.get("total_mb") or "10240").strip()
+        try:
+            int(total_mb)
+        except ValueError:
+            flash("可支配总空间必须为数字。", "danger")
+            return redirect(url_for("service_config_list"))
+        service_config.set_config("STORAGE_TOTAL_MB", total_mb, current_user.id)
+
+        if mode == "local":
+            local_folder = (request.form.get("local_folder") or "").strip()
+            if not local_folder:
+                flash("选择本地存储时必须填写本地存储文件夹。", "danger")
+                return redirect(url_for("service_config_list"))
+            service_config.set_config("STORAGE_LOCAL_FOLDER", local_folder, current_user.id)
+            flash("本地存储配置已保存。", "success")
+        else:
+            host = (request.form.get("sftp_host") or "").strip()
+            user = (request.form.get("sftp_user") or "").strip()
+            remote_dir = (request.form.get("sftp_remote_dir") or "").strip()
+            if not host or not user or not remote_dir:
+                flash("选择服务器存储时必须填写服务器地址、用户名和存放目录。", "danger")
+                return redirect(url_for("service_config_list"))
+            service_config.set_config("SFTP_HOST", host, current_user.id)
+            service_config.set_config("SFTP_PORT", (request.form.get("sftp_port") or "22").strip(), current_user.id)
+            service_config.set_config("SFTP_USER", user, current_user.id)
+            service_config.set_config("SFTP_REMOTE_DIR", remote_dir, current_user.id)
+            password = (request.form.get("sftp_password") or "").strip()
+            if password or not service_config.is_from_db("SFTP_PASSWORD"):
+                service_config.set_config("SFTP_PASSWORD", password, current_user.id)
+            flash("服务器存储配置已保存。", "success")
+        return redirect(url_for("service_config_list"))
 
     @app.route("/admin/service-config/edit", methods=["GET", "POST"])
     @login_required
@@ -1460,15 +1725,20 @@ def register_routes(app: Flask, deps: AppDeps) -> None:
 
     @app.route("/api/extension/config", methods=["GET"])
     def api_extension_config() -> Response:
-        """浏览器扩展接入信息：服务器地址由后台「服务配置 → 站点访问地址」下发。"""
+        """浏览器扩展接入信息：服务器地址按存储模式下发。
 
-        configured = get_service_config("SITE_BASE_URL", "").rstrip("/")
-        return jsonify(
-            {
-                "server_url": configured or request.host_url.rstrip("/"),
-                "server_url_source": "SITE_BASE_URL" if configured else "request",
-            }
-        )
+        本地模式下发当前主机局域网地址；服务器模式下发 SITE_BASE_URL（公网地址）。
+        """
+
+        svc = deps.prototype_files_service
+        if svc.storage_mode() == "local":
+            server_url = request.host_url.rstrip("/")
+            source = "request"
+        else:
+            configured = get_service_config("SITE_BASE_URL", "").rstrip("/")
+            server_url = configured or request.host_url.rstrip("/")
+            source = "SITE_BASE_URL" if configured else "request"
+        return jsonify({"server_url": server_url, "server_url_source": source})
 
     @app.route("/api/upload", methods=["POST"])
     @token_required
@@ -1574,6 +1844,11 @@ def register_routes(app: Flask, deps: AppDeps) -> None:
 
         if not zip_file or not zip_file.filename or not zip_file.filename.lower().endswith(".zip"):
             return jsonify({"message": "必须是 .zip 文件"}), 400
+
+        incoming_bytes = _zip_uncompressed_size(zip_file)
+        space_error = check_upload_space(current_user.id, incoming_bytes)
+        if space_error:
+            return jsonify({"message": space_error}), 413
 
         # 优化上传逻辑：同项目下同名检查
         # 如果指定了项目，则在项目内查找；如果未指定（项目ID为None），则在独立原型中查找

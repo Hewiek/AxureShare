@@ -7,6 +7,13 @@
             <a href="{{ url_for('create_user') }}" class="btn btn-primary">创建新用户</a>
         </div>
     </div>
+    <div class="app-card mb-3">
+        <div class="d-flex flex-wrap gap-4 text-muted small">
+            <span>可支配总空间：<strong>{{ total_mb }} MB</strong>（约 {{ (total_mb / 1024)|round(1) }} GB）</span>
+            <span>已分配：<strong>{{ assigned_mb }} MB</strong></span>
+            <span>剩余可分配：<strong>{{ total_mb - assigned_mb }} MB</strong></span>
+        </div>
+    </div>
     <div class="app-card">
         <div class="table-responsive">
             <table class="table table-hover table-modern">
@@ -15,20 +22,22 @@
                         <th>ID</th>
                         <th>用户名</th>
                         <th>角色</th>
+                        <th>可用空间</th>
+                        <th>剩余空间</th>
                         <th>操作</th>
                     </tr>
                 </thead>
                 <tbody>
-                    {% for user in users %}
+                    {% for row in user_rows %}
                     <tr>
-                        <td>{{ user.id }}</td>
-                        <td>{{ user.username }}</td>
-                        <td><span class="badge badge-{{ 'success' if user.role == 'admin' else 'secondary' }}">{{ user.role }}</span></td>
+                        <td>{{ row.user.id }}</td>
+                        <td>{{ row.user.username }}</td>
+                        <td><span class="badge badge-{{ 'success' if row.user.role == 'admin' else 'secondary' }}">{{ row.user.role }}</span></td>
+                        <td>{{ row.quota_mb }} MB</td>
+                        <td>{{ row.remaining_mb }} MB <span class="text-muted small">（已用 {{ row.used_mb }} MB）</span></td>
                         <td>
                             <div class="table-actions">
-                                {% if user.role != 'admin' %}
-                                <a href="{{ url_for('edit_user', user_id=user.id) }}" class="btn btn-sm btn-secondary">修改密码</a>
-                                {% endif %}
+                                <a href="{{ url_for('edit_user', user_id=row.user.id) }}" class="btn btn-sm btn-secondary">编辑</a>
                             </div>
                         </td>
                     </tr>

@@ -1,12 +1,20 @@
 {% extends "base.html" %}
-{% block title %}修改用户密码{% endblock %}
+{% block title %}编辑用户{% endblock %}
 {% block content %}
     <div class="page-header">
-        <h2 class="page-title">修改用户 {{ user.username }} 的密码</h2>
+        <h2 class="page-title">编辑用户 {{ user.username }}</h2>
+        <div class="page-actions">
+            <a href="{{ url_for('user_list') }}" class="btn btn-secondary page-back">返回列表</a>
+        </div>
     </div>
     <div class="app-card">
         <form method="POST" action="">
             {{ form.hidden_tag() }}
+            <div class="mb-3">
+                {{ form.storage_quota_mb.label(class="form-control-label") }}
+                {{ form.storage_quota_mb(class="form-control", value=user.storage_quota_mb if user.storage_quota_mb is not none else 1024) }}
+                <div class="form-text">该用户可使用的存储空间大小（MB），1GB = 1024 MB。</div>
+            </div>
             <div class="mb-3">
                 {{ form.password.label(class="form-control-label") }}
                 {{ form.password(class="form-control") }}

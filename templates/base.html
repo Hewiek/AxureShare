@@ -13,23 +13,26 @@
     {% if not hide_nav %}
     <nav class="navbar navbar-expand-lg navbar-dark bg-dark app-navbar">
         <div class="container">
-            <a class="navbar-brand" href="{{ url_for('dashboard') }}">项目列表</a>
+            <a class="navbar-brand" href="{{ url_for('dashboard') }}">原型列表</a>
             <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
                 <span class="navbar-toggler-icon"></span>
             </button>
             <div class="collapse navbar-collapse" id="navbarNav">
                 <ul class="navbar-nav me-auto">
-                    <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('unassigned_prototypes') }}">独立原型</a>
-                    </li>
                     {% if current_user.is_authenticated and current_user.role == 'admin' %}
                     <li class="nav-item"><a class="nav-link" href="{{ url_for('user_list') }}">用户管理</a></li>
                     <li class="nav-item"><a class="nav-link" href="{{ url_for('group_list') }}">用户组管理</a></li>
-                    <li class="nav-item"><a class="nav-link" href="{{ url_for('service_config_list') }}">服务配置</a></li>
+                    <li class="nav-item"><a class="nav-link" href="{{ url_for('service_config_list') }}">存储配置</a></li>
                     {% endif %}
                 </ul>
                 <ul class="navbar-nav ms-auto">
                     {% if current_user.is_authenticated %}
+                        <li class="nav-item">
+                            <a class="nav-link" href="{{ url_for('extension_download') }}" download
+                               title="下载最新版浏览器上传插件（zip）">
+                                <i class="fas fa-puzzle-piece me-1"></i>插件
+                            </a>
+                        </li>
                         <li class="nav-item dropdown">
                             <a class="nav-link dropdown-toggle" href="#" id="navbarUserDropdown" role="button" data-bs-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
                                 你好, {{ current_user.username }}

@@ -25,51 +25,6 @@ class ConfigSpec:
 
 KNOWN_CONFIGS: tuple[ConfigSpec, ...] = (
     ConfigSpec(
-        key="MAIN_AI_BASE_URL",
-        label="主模型服务地址",
-        category="AI 服务",
-        placeholder="https://api.xiaomimimo.com/v1",
-        help_text="OpenAI 兼容接口的 Base URL，留空则使用环境变量或默认值。",
-        env_fallbacks=("MAIN_AI_BASE_URL",),
-    ),
-    ConfigSpec(
-        key="MAIN_AI_API_KEY",
-        label="主模型 API Key",
-        category="AI 服务",
-        secret=True,
-        help_text="调用主模型问答服务使用的密钥。",
-        env_fallbacks=("MAIN_AI_API_KEY",),
-    ),
-    ConfigSpec(
-        key="MAIN_AI_MODEL",
-        label="主模型名称",
-        category="AI 服务",
-        placeholder="mimo-v2-flash",
-        env_fallbacks=("MAIN_AI_MODEL", "AIN_AI_MODEL"),
-    ),
-    ConfigSpec(
-        key="SILICONFLOW_BASE_URL",
-        label="向量模型服务地址",
-        category="向量/Embedding 服务",
-        placeholder="https://api.siliconflow.cn/v1",
-        env_fallbacks=("SILICONFLOW_BASE_URL",),
-    ),
-    ConfigSpec(
-        key="SILICONFLOW_API_KEY",
-        label="向量模型 API Key",
-        category="向量/Embedding 服务",
-        secret=True,
-        help_text="调用 Embedding 服务使用的密钥，未配置时知识库检索不可用。",
-        env_fallbacks=("SILICONFLOW_API_KEY",),
-    ),
-    ConfigSpec(
-        key="EMBEDDING_MODEL",
-        label="向量模型名称",
-        category="向量/Embedding 服务",
-        placeholder="BAAI/bge-m3",
-        env_fallbacks=("EMBEDDING_MODEL",),
-    ),
-    ConfigSpec(
         key="SQLALCHEMY_DATABASE_URI",
         label="数据库连接串",
         category="服务器",
@@ -91,8 +46,69 @@ KNOWN_CONFIGS: tuple[ConfigSpec, ...] = (
         label="存储配额 (MB)",
         category="服务器",
         placeholder="1024",
-        help_text="项目列表侧边栏展示的存储总配额，仅用于展示。",
+        help_text="原型列表侧边栏展示的存储总配额，仅用于展示。",
         env_fallbacks=("STORAGE_QUOTA_MB",),
+    ),
+    ConfigSpec(
+        key="STORAGE_MODE",
+        label="存储方式",
+        category="存储配置",
+        placeholder="local",
+        help_text="local=本地文件夹；sftp=上传到 SFTP 服务器。请在「存储配置」页顶部的存储方式设置中选择。",
+        env_fallbacks=("STORAGE_MODE",),
+    ),
+    ConfigSpec(
+        key="STORAGE_TOTAL_MB",
+        label="可支配总空间 (MB)",
+        category="存储配置",
+        placeholder="10240",
+        help_text="所有用户可用空间之和必须小于该值。本地模式默认 10G，服务器模式请填写服务器实际可支配空间。",
+        env_fallbacks=("STORAGE_TOTAL_MB",),
+    ),
+    ConfigSpec(
+        key="STORAGE_LOCAL_FOLDER",
+        label="本地存储文件夹",
+        category="存储配置",
+        placeholder="如 D:\\prototype_files 或 /data/prototype_files",
+        help_text="本地存储模式下新上传原型文件的存放根目录（其下自动分 prototypes/source_files/attachments 子目录）。",
+        env_fallbacks=("STORAGE_LOCAL_FOLDER",),
+    ),
+    ConfigSpec(
+        key="SFTP_HOST",
+        label="SFTP 服务器地址",
+        category="存储配置",
+        placeholder="如 192.168.1.10",
+        help_text="服务器存储模式下的 SFTP 主机地址。",
+        env_fallbacks=("SFTP_HOST",),
+    ),
+    ConfigSpec(
+        key="SFTP_PORT",
+        label="SFTP 端口",
+        category="存储配置",
+        placeholder="22",
+        env_fallbacks=("SFTP_PORT",),
+    ),
+    ConfigSpec(
+        key="SFTP_USER",
+        label="SFTP 用户名",
+        category="存储配置",
+        env_fallbacks=("SFTP_USER",),
+    ),
+    ConfigSpec(
+        key="SFTP_PASSWORD",
+        label="SFTP 密码",
+        category="存储配置",
+        secret=True,
+        help_text="留空则不覆盖已保存的密码。",
+        env_fallbacks=("SFTP_PASSWORD",),
+    ),
+    ConfigSpec(
+        key="SFTP_REMOTE_DIR",
+        label="服务器存放目录",
+        category="存储配置",
+        placeholder="如 /srv/prototype_files",
+        help_text="原型文件在 SFTP 服务器上的存放根目录（其下自动分 prototypes/source_files/attachments 子目录）。",
+        env_fallbacks=("SFTP_REMOTE_DIR",),
     ),
 )
 
@@ -110,11 +126,11 @@ def get_config(key: str, default: str = "") -> str:
     if row and row.value.strip():
         return row.value.strip()
     spec = _KNOWN_BY_KEY.get(key)
-    if spec:
-        for env_name in spec.env_fallbacks:
-            value = os.environ.get(env_name, "").strip()
-            if value:
-                return value
+    env_names = spec.env_fallbacks if spec else (key,)
+    for env_name in env_names:
+        value = os.environ.get(env_name, "").strip()
+        if value:
+            return value
     return default
 
 
@@ -159,8 +175,8 @@ def resolve_for_display(key: str) -> dict[str, Any]:
     if row and row.value.strip():
         value = row.value.strip()
         source = "db"
-    elif spec:
-        for env_name in spec.env_fallbacks:
+    else:
+        for env_name in (spec.env_fallbacks if spec else (key,)):
             env_value = os.environ.get(env_name, "").strip()
             if env_value:
                 value = env_value

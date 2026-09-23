@@ -1,19 +1,16 @@
 {% extends "base.html" %}
-{% block title %}项目列表{% endblock %}
+{% block title %}原型列表{% endblock %}
 {% block content %}
 <div class="project-layout">
     <aside class="project-sidebar">
-        <button class="btn ps-new" data-modal-trigger="{{ url_for('create_project') }}" data-title="新建项目">
+        <a href="{{ url_for('upload') }}" class="btn ps-new">
             <i class="fas fa-plus"></i> 新建
-        </button>
+        </a>
         <nav class="ps-nav">
-            <a href="javascript:;" class="ps-nav-item active" data-view="recent"><i class="far fa-clock"></i> 最近更新</a>
             <a href="javascript:;" class="ps-nav-item" data-view="mine"><i class="fas fa-desktop"></i> 我的项目</a>
-            <a href="javascript:;" class="ps-nav-item" data-view="shared"><i class="fas fa-user-friends"></i> 与我协作</a>
-            <a href="{{ url_for('unassigned_prototypes') }}" class="ps-nav-item"><i class="fas fa-file-alt"></i> 独立原型</a>
         </nav>
         <div class="ps-storage">
-            <div class="ps-storage-text">可用空间：{{ storage.free_mb }} MB</div>
+            <div class="ps-storage-text">可用空间：{{ storage.free_bytes|file_size_cn }}</div>
             <div class="ps-progress"><div class="ps-progress-bar" style="width: {{ [storage.used_pct, 100]|min }}%"></div></div>
             <div class="ps-storage-sub">已用 {{ storage.used_mb }} / {{ storage.quota_mb }} MB</div>
         </div>
@@ -23,58 +20,40 @@
         <div class="pm-toolbar">
             <div class="pm-search">
                 <i class="fas fa-search"></i>
-                <input type="text" id="project-search" placeholder="搜索项目…">
+                <input type="text" id="prototype-search" placeholder="搜索原型…">
             </div>
         </div>
         <table class="project-table">
             <thead>
                 <tr>
-                    <th style="width: 45%;">项目</th>
-                    <th style="width: 20%;">所有者</th>
-                    <th style="width: 25%;">更新时间</th>
-                    <th style="width: 10%;"></th>
+                    <th style="min-width: 180px;">原型名称</th>
+                    <th class="text-nowrap" style="width: 16%;">更新日期</th>
+                    <th class="text-nowrap" style="width: 30%;">操作</th>
                 </tr>
             </thead>
-            <tbody id="project-rows">
-                {% for project in projects %}
+            <tbody id="prototype-rows">
+                {% for proto in prototypes %}
                 <tr class="project-row"
-                    data-name="{{ project.name|lower }}"
-                    data-mine="{{ 'true' if project.owner_id == current_user.id else 'false' }}"
-                    data-activity="{{ project.last_activity_at.strftime('%Y-%m-%d %H:%M') }}">
+                    data-name="{{ proto.name|lower }}"
+                    data-mine="{{ 'true' if proto.owner_id == current_user.id else 'false' }}">
+                    <td><div class="text-truncate" title="{{ proto.name }}">{{ proto.name }}</div></td>
+                    <td class="text-nowrap">{{ proto.updated_at | datetime_cn }}</td>
                     <td>
-                        <div class="pr-name">
-                            <i class="far fa-folder pr-icon"></i>
-                            <a href="{{ url_for('project_dashboard', project_id=project.id) }}">{{ project.name }}</a>
-                        </div>
-                    </td>
-                    <td class="pr-owner">{{ project.owner.username }}</td>
-                    <td class="pr-time">{{ project.last_activity_at | datetime_cn }}</td>
-                    <td class="pr-actions-cell">
-                        <div class="pr-actions">
-                            {% if has_edit_permission_project(project) %}
-                            <div class="dropdown">
-                                <button class="pr-more" type="button" id="project-menu-{{ project.id }}" data-bs-toggle="dropdown" aria-haspopup="true" aria-expanded="false" title="更多操作">
-                                    <i class="fas fa-ellipsis-v"></i>
-                                </button>
-                                <div class="dropdown-menu dropdown-menu-end project-action-menu" aria-labelledby="project-menu-{{ project.id }}">
-                                    <a class="dropdown-item" href="{{ url_for('project_permissions', project_id=project.id) }}" data-modal-trigger data-title="协作权限">
-                                        <i class="fas fa-user-friends fa-fw me-2"></i>协作
-                                    </a>
-                                    <a class="dropdown-item" href="{{ url_for('edit_project', project_id=project.id) }}" data-modal-trigger data-title="项目设置">
-                                        <i class="fas fa-cog fa-fw me-2"></i>设置
-                                    </a>
-                                    <a class="dropdown-item" href="{{ url_for('move_project_prototypes', project_id=project.id) }}" data-modal-trigger data-title="移动原型">
-                                        <i class="fas fa-arrows-alt fa-fw me-2"></i>移动
-                                    </a>
-                                    <form action="{{ url_for('project_clear_html', project_id=project.id) }}" method="POST" onsubmit="return confirm('确定清空项目内所有原型的 HTML 吗？源文件与附件会保留。');">
-                                        <button type="submit" class="dropdown-item"><i class="fas fa-broom fa-fw me-2"></i>清空 html</button>
-                                    </form>
-                                    <div class="dropdown-divider"></div>
-                                    <form action="{{ url_for('delete_project', project_id=project.id) }}" method="POST" onsubmit="return confirm('确定要删除这个项目吗？内部原型不会被删除。');">
-                                        <button type="submit" class="dropdown-item text-danger"><i class="fas fa-trash fa-fw me-2"></i>删除项目</button>
-                                    </form>
-                                </div>
-                            </div>
+                        <div class="table-actions">
+                            <a href="{{ url_for('view_prototype', short_id=hashids.encode(proto.id)) }}" target="_blank" class="text-btn">查看</a>
+                            {% if has_edit_permission(proto) %}
+                            <a href="{{ url_for('edit_prototype', proto_id=proto.id) }}" class="text-btn" data-drawer-trigger data-title="编辑原型">编辑</a>
+                            <a href="{{ url_for('prototype_share', proto_id=proto.id) }}" class="text-btn" data-modal-trigger data-title="分享">分享</a>
+                            <a href="{{ url_for('prototype_permissions', proto_id=proto.id) }}" class="text-btn" data-modal-trigger data-title="权限设置">权限</a>
+                            <a href="{{ url_for('prototype_update_method', proto_id=proto.id) }}" class="text-btn" data-modal-trigger data-title="选择更新方式">更新</a>
+                            {% if proto.source_filename %}
+                            <a href="{{ url_for('download_source', proto_id=proto.id) }}" class="text-btn">下载源文件</a>
+                            {% endif %}
+                            <form action="{{ url_for('delete_prototype', proto_id=proto.id) }}" method="POST" style="display:inline;" onsubmit="return confirm('确定要永久删除这个原型吗？');">
+                                <button type="submit" class="text-btn text-btn-danger">删除</button>
+                            </form>
+                            {% else %}
+                            <small class="text-muted">仅查看</small>
                             {% endif %}
                         </div>
                     </td>
@@ -88,50 +67,38 @@
 
 <script>
     (function () {
-        const tbody = document.getElementById('project-rows');
+        const tbody = document.getElementById('prototype-rows');
         const rows = Array.from(tbody.querySelectorAll('.project-row'));
-        const searchInput = document.getElementById('project-search');
+        const searchInput = document.getElementById('prototype-search');
         const endTip = document.getElementById('pm-end');
-        let view = 'all';
-
-        function sortByActivity() {
-            rows.slice()
-                .sort(function (a, b) { return b.dataset.activity.localeCompare(a.dataset.activity); })
-                .forEach(function (row) { tbody.appendChild(row); });
-        }
+        const mineItem = document.querySelector('.ps-nav-item[data-view="mine"]');
+        let onlyMine = false;
 
         function apply() {
             const keyword = searchInput.value.trim().toLowerCase();
             let visible = 0;
             rows.forEach(function (row) {
                 let ok = true;
-                if (view === 'mine') ok = row.dataset.mine === 'true';
-                else if (view === 'shared') ok = row.dataset.mine === 'false';
+                if (onlyMine) ok = row.dataset.mine === 'true';
                 if (ok && keyword) ok = row.dataset.name.indexOf(keyword) !== -1;
                 row.style.display = ok ? '' : 'none';
                 if (ok) visible++;
             });
             if (!rows.length) {
-                endTip.textContent = '暂无项目，点击左侧「新建」创建。';
+                endTip.textContent = '暂无原型，点击左侧「新建」上传。';
             } else {
-                endTip.textContent = visible === 0 ? '没有符合条件的项目' : '已经没有更多数据了...';
+                endTip.textContent = visible === 0 ? '没有符合条件的原型' : '已经没有更多数据了...';
             }
         }
 
-        document.querySelectorAll('.ps-nav-item[data-view]').forEach(function (item) {
-            item.addEventListener('click', function () {
-                document.querySelectorAll('.ps-nav-item').forEach(function (n) { n.classList.remove('active'); });
-                item.classList.add('active');
-                view = item.dataset.view;
-                if (view === 'recent') {
-                    sortByActivity();
-                    view = 'all';
-                }
-                apply();
-            });
+        mineItem.addEventListener('click', function () {
+            onlyMine = !onlyMine;
+            mineItem.classList.toggle('active', onlyMine);
+            apply();
         });
 
-        sortByActivity();
+        searchInput.addEventListener('input', apply);
+
         apply();
     })();
 </script>

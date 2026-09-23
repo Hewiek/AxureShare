@@ -44,57 +44,49 @@
         </div>
 
         <div class="app-card profile-card">
-            <div class="profile-section-title"><i class="fas fa-key fa-fw me-1"></i>API Token</div>
-            <p class="text-muted small mb-2">用于浏览器扩展与 API 接入，通过 API 与本系统交互，请妥善保管。</p>
-            <div class="d-flex align-items-center" style="gap: 8px;">
-                <code class="profile-token" id="profile-token">{{ current_user.api_token }}</code>
-                <button type="button" class="btn btn-sm btn-outline-secondary" id="profile-token-copy">复制</button>
+            <div class="profile-section-title"><i class="fas fa-mobile-alt fa-fw me-1"></i>帐号手机</div>
+            <div class="d-flex align-items-center" style="gap: 12px; flex-wrap: wrap;">
+                <span class="profile-info-label">帐号手机：</span>
+                <span id="profile-phone-text">{{ (current_user.phone[:3] ~ '****' ~ current_user.phone[-4:]) if current_user.phone else '未绑定' }}</span>
+                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="toggleProfileEdit('phone')">修 改</button>
             </div>
+            <form method="POST" action="{{ url_for('profile_update_phone') }}" id="profile-phone-form" class="d-flex align-items-center mt-2" style="gap: 8px; display: none;">
+                <input type="tel" name="phone" maxlength="11" pattern="1\d{10}" class="form-control form-control-sm" style="max-width: 220px;" placeholder="请输入 11 位手机号" required>
+                <button type="submit" class="btn btn-sm btn-success">保 存</button>
+                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="toggleProfileEdit('phone')">取 消</button>
+            </form>
         </div>
 
         <div class="app-card profile-card">
-            <div class="profile-section-title"><i class="fas fa-lock fa-fw me-1"></i>修改密码</div>
-            <form method="POST" action="" class="profile-pwd-form">
-                {{ form.hidden_tag() }}
+            <div class="profile-section-title"><i class="fas fa-lock fa-fw me-1"></i>帐号密码</div>
+            <form method="POST" action="{{ url_for('profile_change_password') }}" class="profile-pwd-form">
+                <input type="hidden" name="channel" value="phone">
                 <div class="mb-3">
-                    {{ form.username.label(class="form-control-label") }}
-                    {{ form.username(class="form-control", readonly=true) }}
+                    <button type="submit" class="btn btn-outline-secondary btn-block" style="width: 100%; max-width: 320px;" formaction="{{ url_for('profile_send_password_code') }}">发送验证码</button>
                 </div>
                 <div class="mb-3">
-                    {{ form.password.label(class="form-control-label") }}
-                    {{ form.password(class="form-control", type="password", placeholder="留空则不修改") }}
+                    <label class="form-control-label"><span class="text-danger me-1">*</span>验证码：</label>
+                    <input type="text" name="code" maxlength="6" class="form-control" style="max-width: 320px;" placeholder="请输入验证码" required>
                 </div>
                 <div class="mb-3">
-                    {{ form.confirm_password.label(class="form-control-label") }}
-                    {{ form.confirm_password(class="form-control", type="password") }}
+                    <label class="form-control-label">新密码：</label>
+                    <input type="password" name="new_password" class="form-control" style="max-width: 320px;" placeholder="请输入新密码" required>
+                </div>
+                <div class="mb-3">
+                    <label class="form-control-label">确认密码：</label>
+                    <input type="password" name="confirm_password" class="form-control" style="max-width: 320px;" placeholder="请确认新密码" required>
                 </div>
                 <div class="mb-0">
-                    {{ form.submit(class="btn btn-primary") }}
+                    <button type="submit" class="btn btn-success" style="width: 100%; max-width: 320px;">修改密码</button>
                 </div>
             </form>
         </div>
     </div>
 
 <script>
-    (function () {
-        var btn = document.getElementById('profile-token-copy');
-        var code = document.getElementById('profile-token');
-        if (!btn || !code) return;
-        btn.addEventListener('click', function () {
-            var text = code.textContent.trim();
-            var done = function () {
-                btn.textContent = '已复制';
-                setTimeout(function () { btn.textContent = '复制'; }, 1500);
-            };
-            if (navigator.clipboard && window.isSecureContext) {
-                navigator.clipboard.writeText(text).then(done);
-            } else {
-                var ta = document.createElement('textarea');
-                ta.value = text; document.body.appendChild(ta); ta.select();
-                document.execCommand('copy'); document.body.removeChild(ta);
-                done();
-            }
-        });
-    })();
+    function toggleProfileEdit(kind) {
+        var form = document.getElementById('profile-' + kind + '-form');
+        form.style.display = form.style.display === 'none' ? 'flex' : 'none';
+    }
 </script>
 {% endblock %}

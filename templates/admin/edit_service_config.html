@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}编辑服务配置{% endblock %}
+{% block title %}编辑存储配置{% endblock %}
 {% block content %}
     <div class="page-header">
         <h2 class="page-title">
@@ -17,7 +17,7 @@
                     <input type="hidden" name="key" value="{{ key }}">
                     <input type="text" class="form-control" value="{{ key }}" readonly>
                 {% else %}
-                    <input type="text" name="key" value="{{ key }}" class="form-control" required maxlength="120" pattern="[A-Za-z0-9_.\-]+" placeholder="例如：SMTP_HOST">
+                    <input type="text" name="key" value="{{ key }}" class="form-control" required maxlength="120" pattern="[A-Za-z0-9_.\-]+" placeholder="例如：CUSTOM_KEY">
                     <div class="form-text">仅允许字母、数字、下划线、点和中划线。</div>
                 {% endif %}
             </div>

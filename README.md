@@ -2,6 +2,14 @@
 
 基于 Flask 的 Axure 原型分享平台，支持原型文件上传、多角色账号管理、AI对话答疑等功能。
 
+> ### 🚀 部署与发布（本工作区约定 · 2026-09-21）
+>
+> 本项目是工作区里**唯一允许部署在服务器上的项目**：
+> - **服务器**：Hyper-V 虚拟机 `axure-bt` → **http://192.168.1.230:7855**（Docker 容器 `axure-share`，代码位于 VM 的 `/home/debian/axure`；数据库 `instance/`、用户上传 `uploads/` 在同目录）
+> - **发布命令**：`bash /g/Workplace/axure-vm/publish.sh` —— 只更新代码，**不覆盖** VM 上的数据库与上传内容（约 30 秒，脚本内含健康检查）
+> - **⚠️ 禁止主动部署**：只有用户明确说「部署 / 发布」时才执行发布；其余项目一律不得部署到宝塔 / 服务器。完整规则见 [`../AGENTS.md`](../AGENTS.md) 第六节。
+> - **搭建、面板、MCP 与凭证**：见 [`../axure-vm/README.md`](../axure-vm/README.md)。
+
 ## 功能特性
 
 - 用户认证与权限管理
@@ -240,3 +248,31 @@ flask db upgrade
 ## 许可证
 
 **AGPL v3 + 禁止商业化条款** - 详见 [LICENSE](LICENSE) 文件
+
+---
+
+## 浏览器扩展打包
+
+扩展源码位于 `extension/`，打包产物保存到 `dist/axureshare-upload-helper-{version}.zip`。
+
+### 打包命令
+
+```bash
+# 使用 Makefile（推荐）
+make build-extension
+
+# 或直接调用 Python
+python scripts/build_extension.py
+```
+
+### 自动同步机制
+
+- `/extension/download` 路由读取 `dist/axureshare-upload-helper-*.zip`，按文件名排序取最新包返回。
+- 每次更新插件代码后，**务必重新打包**，确保下载链接指向最新版本。
+
+## 变更记录
+
+> 登记义务（强制）：本项目任何改动（代码/文档/配置）完成后，都在本区块登记一条；新记录插在顶部、只保留最近 5 条。
+> （本项目无 `docs/` 目录，索引锚点即本 README，与 prototype-hub 同例。）
+
+- 2026-09-21 · 新增「部署与发布」区块（README 顶部）：登记唯一允许的服务器部署（VM `axure-bt` → http://192.168.1.230:7855，容器 `axure-share`）、发布命令 `bash /g/Workplace/axure-vm/publish.sh`，以及**禁止主动部署**的强制条款；同时新建 `../axure-vm/README.md` 记录服务器事实与发布流程。

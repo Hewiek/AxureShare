@@ -17,7 +17,6 @@ var DEFAULTS = {
   isPublic: false,
   alwaysShow: false,
   lastUploadUrl: "",
-  serverManual: false,
   configStamp: 0,
 };
 
@@ -32,10 +31,10 @@ async function loadSettings() {
   return settings;
 }
 
-/* 服务器地址以后台下发为准；用户手动改过地址（serverManual）时不再覆盖。 */
+/* 服务器地址全自动：打开后台站点时由内容脚本上报，另有后台下发的站点访问地址兜底刷新。 */
 async function refreshServerConfig(force) {
   var settings = await loadSettings();
-  if (settings.serverManual || (!force && Date.now() - (settings.configStamp || 0) < CONFIG_TTL)) return settings;
+  if (!force && Date.now() - (settings.configStamp || 0) < CONFIG_TTL) return settings;
   try {
     var server = await AXShare.config.fetchServer(settings.server);
     if (server !== settings.server) await chrome.storage.local.set({ server: server });
@@ -220,6 +219,27 @@ chrome.runtime.onMessage.addListener(function (message, sender, sendResponse) {
     saveSettings(message.patch || {}).then(sendResponse, function (e) { sendResponse(fail(e)); });
     return true;
   }
+  if (message.type === "site:report") {
+    (async function () {
+      try {
+        var reported = AXShare.api.normalizeServer(message.url);
+        if (!reported) {
+          sendResponse({ ok: false, message: "无效来源" });
+          return;
+        }
+        var known = await loadSettings();
+        if (known.server === reported) {
+          sendResponse({ ok: true, changed: false });
+          return;
+        }
+        await chrome.storage.local.set({ server: reported, configStamp: Date.now() });
+        sendResponse({ ok: true, changed: true });
+      } catch (e) {
+        sendResponse(fail(e));
+      }
+    })();
+    return true;
+  }
   if (message.type === "login:open") {
     openLoginWindow().then(sendResponse, function (e) { sendResponse(fail(e)); });
     return true;
@@ -234,12 +254,11 @@ chrome.runtime.onMessage.addListener(function (message, sender, sendResponse) {
       try {
         var known = await loadSettings();
         var server = AXShare.api.normalizeServer(message.server) || known.server;
-        if (!server) throw new Error("未获取到服务器地址，请检查后台服务是否在运行");
+        if (!server) throw new Error("未识别到服务器地址，请先在浏览器打开 AxureShare 后台页面");
         var token = await AXShare.api.login(server, message.username, message.password);
         var account = await AXShare.api.profile(server, token);
         var saved = await saveSettings({
           server: server,
-          serverManual: message.server ? server !== known.server : known.serverManual,
           token: token,
           userName: account.username || message.username,
           role: account.role || "",

@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "AxureShare 上传助手",
-  "version": "1.2.0",
-  "description": "在 Axure RP 预览页一键打包并同步原型到 AxureShare：服务器地址与项目库由后台下发，选择项目即可替换更新。",
+  "version": "1.2.2",
+  "description": "在 Axure RP 预览页一键打包并同步原型到 AxureShare：服务器地址自动识别，项目库由后台下发，选择项目即可替换更新。",
   "permissions": ["storage"],
   "host_permissions": ["http://*/*", "https://*/*", "file:///*"],
   "background": {

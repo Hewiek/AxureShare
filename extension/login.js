@@ -1,4 +1,4 @@
-/* 登录弹窗：服务器地址来自后台下发，只在换取密钥失败时才允许手动改地址。 */
+/* 登录弹窗：服务器地址全自动——打开后台页面时由内容脚本上报，其次由后台下发，无需手动填写。 */
 "use strict";
 
 (function () {
@@ -6,12 +6,10 @@
     return document.getElementById(id);
   };
   var els = {
-    serverLine: $("serverLine"), serverRow: $("serverRow"), server: $("server"), serverEdit: $("serverEdit"),
-    serverSave: $("serverSave"), username: $("username"), password: $("password"), submit: $("submit"),
+    serverLine: $("serverLine"), username: $("username"), password: $("password"), submit: $("submit"),
     cancel: $("cancel"), status: $("status"), account: $("account"),
   };
   var serverAddr = "";
-  var manual = false;
 
   function send(message) {
     return new Promise(function (resolve) {
@@ -31,16 +29,16 @@
   }
 
   function showServer() {
-    els.serverLine.textContent = serverAddr || "未获取到服务器地址";
-    els.serverRow.style.display = manual ? "flex" : "none";
-    els.serverEdit.style.display = manual ? "none" : "inline";
+    els.serverLine.textContent = serverAddr
+      ? "服务器：" + serverAddr + "（自动识别）"
+      : "未识别到服务器地址，请先在浏览器打开 AxureShare 后台页面";
   }
 
   async function submit() {
     var username = els.username.value.trim();
     var password = els.password.value;
     if (!serverAddr) {
-      setStatus("未获取到服务器地址，请点击「改用其他地址」填写", "err");
+      setStatus("未识别到服务器地址，请先在浏览器打开 AxureShare 后台页面后重新登录", "err");
       return;
     }
     if (!username || !password) {
@@ -63,46 +61,39 @@
 
   els.submit.addEventListener("click", submit);
   els.cancel.addEventListener("click", function () { window.close(); });
-  els.serverEdit.addEventListener("click", function () {
-    manual = true;
-    els.server.value = serverAddr;
-    showServer();
-    els.server.focus();
-  });
-  els.serverSave.addEventListener("click", function () {
-    var value = AXShare.api.normalizeServer(els.server.value);
-    if (!value) {
-      setStatus("请填写服务器地址", "err");
-      return;
-    }
-    serverAddr = value;
-    showServer();
-    setStatus("已切换地址，点击「登录」生效");
-  });
-  [els.server, els.username, els.password].forEach(function (input) {
+  [els.username, els.password].forEach(function (input) {
     input.addEventListener("keydown", function (event) {
       if (event.key !== "Enter") return;
       event.preventDefault();
-      if (manual && els.serverRow.style.display !== "none" && document.activeElement === els.server) {
-        els.serverSave.click();
-      } else {
-        submit();
-      }
+      submit();
     });
   });
 
-  (async function init() {
+  async function refreshServer() {
     var settings = await send({ type: "settings:get" });
-    serverAddr = (settings && settings.server) || "";
-    manual = !!(settings && settings.serverManual);
-    showServer();
+    var next = (settings && settings.server) || "";
+    if (next && next !== serverAddr) {
+      serverAddr = next;
+      showServer();
+    }
+    return settings;
+  }
+
+  (async function init() {
+    var settings = await refreshServer();
     if (settings && settings.userName) {
       els.username.value = settings.userName;
       els.account.textContent = "当前已登录：" + settings.userName + (settings.role ? "（" + settings.role + "）" : "");
       setStatus("换账号登录会覆盖本机保存的密钥。");
     }
-    if (manual) els.server.focus();
-    else if (settings && settings.userName) els.password.focus();
+    if (settings && settings.userName) els.password.focus();
     else els.username.focus();
+
+    /* 后台页面上报是异步的：短时间内多次回读，让自动识别尽快显示。 */
+    if (!serverAddr) {
+      [800, 2000, 4000].forEach(function (delay) {
+        setTimeout(function () { refreshServer(); }, delay);
+      });
+    }
   })();
 })();

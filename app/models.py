@@ -64,8 +64,10 @@ class User(UserMixin, db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False)
+    phone = db.Column(db.String(20))
     password_hash = db.Column(db.String(200))
     role = db.Column(db.String(20), nullable=False, default="user")
+    storage_quota_mb = db.Column(db.Integer, nullable=True, default=1024)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     groups = db.relationship("Group", secondary=user_group_association, back_populates="users")
     api_token = db.Column(db.String(36), unique=True, nullable=True, default=lambda: str(uuid.uuid4()))

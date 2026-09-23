@@ -37,17 +37,19 @@
         <div class="share-row">
             <div class="share-label">工具栏状态：</div>
             <div class="share-value">
+                <div class="d-flex flex-nowrap" style="gap: 20px;">
                 <div class="form-check form-check-inline">
                     <input class="form-check-input" type="radio" name="toolbar_state" id="tb-expanded" value="expanded" {% if proto.toolbar_state != 'hide_sitemaps' and proto.toolbar_state != 'collapsed' %}checked{% endif %}>
                     <label class="form-check-label" for="tb-expanded">展开</label>
                 </div>
                 <div class="form-check form-check-inline">
                     <input class="form-check-input" type="radio" name="toolbar_state" id="tb-hide" value="hide_sitemaps" {% if proto.toolbar_state == 'hide_sitemaps' %}checked{% endif %}>
-                    <label class="form-check-label" for="tb-hide">隐藏 sitemaps</label>
+                    <label class="form-check-label" for="tb-hide">隐藏</label>
                 </div>
                 <div class="form-check form-check-inline">
                     <input class="form-check-input" type="radio" name="toolbar_state" id="tb-collapsed" value="collapsed" {% if proto.toolbar_state == 'collapsed' %}checked{% endif %}>
                     <label class="form-check-label" for="tb-collapsed">收起</label>
+                </div>
                 </div>
                 <div class="form-text">控制访问者打开原型时左侧页面树的默认状态，对 Axure 导出的原型生效。</div>
             </div>

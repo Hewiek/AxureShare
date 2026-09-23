@@ -1,13 +1,72 @@
 {% extends "base.html" %}
-{% block title %}服务配置{% endblock %}
+{% block title %}存储配置{% endblock %}
 {% block content %}
     <div class="page-header">
-        <h2 class="page-title">服务配置</h2>
-        <div class="page-actions">
-            <a href="{{ url_for('edit_service_config') }}?key=" class="btn btn-primary">新增自定义参数</a>
-        </div>
+        <h2 class="page-title">存储配置</h2>
     </div>
-    <p class="text-muted">这里配置服务器、密钥等运行参数。数据库中的配置优先于环境变量；删除配置项将回退到环境变量或默认值。仅管理员可访问。</p>
+    <p class="text-muted">选择原型文件的存储方式。选择本地存储时，文件存放到指定的本地文件夹；选择服务器存储时，文件上传到 SFTP 服务器。仅管理员可访问。</p>
+
+    <div class="app-card mb-4">
+        <h5 class="mb-3">存储方式设置</h5>
+        <form method="post" action="{{ url_for('save_storage_config') }}">
+            <div class="mb-3">
+                <label class="form-label d-block">存储方式 <span class="text-danger">*</span></label>
+                <div class="form-check form-check-inline">
+                    <input class="form-check-input" type="radio" name="storage_mode" id="mode_local" value="local" {% if storage.mode != 'sftp' %}checked{% endif %} onchange="toggleStorageForm()">
+                    <label class="form-check-label" for="mode_local">本地存储</label>
+                </div>
+                <div class="form-check form-check-inline">
+                    <input class="form-check-input" type="radio" name="storage_mode" id="mode_sftp" value="sftp" {% if storage.mode == 'sftp' %}checked{% endif %} onchange="toggleStorageForm()">
+                    <label class="form-check-label" for="mode_sftp">服务器存储 (SFTP)</label>
+                </div>
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label" for="total_mb">可支配总空间 (MB) <span class="text-danger">*</span></label>
+                <input type="number" class="form-control" id="total_mb" name="total_mb" value="{{ storage.total_mb }}" min="1" required>
+                <div class="form-text">所有用户可用空间之和必须小于该值。本地模式默认 10240（10G）。</div>
+            </div>
+
+            <div id="local_fields" {% if storage.mode == 'sftp' %}style="display:none"{% endif %}>
+                <div class="mb-3">
+                    <label class="form-label" for="local_folder">本地存储文件夹 <span class="text-danger">*</span></label>
+                    <input type="text" class="form-control" id="local_folder" name="local_folder" value="{{ storage.local_folder }}" placeholder="如 D:\prototype_files 或 /data/prototype_files">
+                    <div class="form-text">选择本地存储时必须填写。后续原型文件将存放到此文件夹（其下自动分 prototypes/source_files/attachments 子目录）。</div>
+                </div>
+            </div>
+
+            <div id="sftp_fields" {% if storage.mode != 'sftp' %}style="display:none"{% endif %}>
+                <div class="row">
+                    <div class="col-md-8 mb-3">
+                        <label class="form-label" for="sftp_host">SFTP 服务器地址 <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="sftp_host" name="sftp_host" value="{{ storage.sftp_host }}" placeholder="如 192.168.1.10">
+                    </div>
+                    <div class="col-md-4 mb-3">
+                        <label class="form-label" for="sftp_port">SFTP 端口</label>
+                        <input type="text" class="form-control" id="sftp_port" name="sftp_port" value="{{ storage.sftp_port }}" placeholder="22">
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="col-md-6 mb-3">
+                        <label class="form-label" for="sftp_user">SFTP 用户名 <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="sftp_user" name="sftp_user" value="{{ storage.sftp_user }}">
+                    </div>
+                    <div class="col-md-6 mb-3">
+                        <label class="form-label" for="sftp_password">SFTP 密码</label>
+                        <input type="password" class="form-control" id="sftp_password" name="sftp_password" autocomplete="new-password" placeholder="留空则保持已保存的密码">
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label" for="sftp_remote_dir">服务器存放目录 <span class="text-danger">*</span></label>
+                    <input type="text" class="form-control" id="sftp_remote_dir" name="sftp_remote_dir" value="{{ storage.sftp_remote_dir }}" placeholder="如 /srv/prototype_files">
+                    <div class="form-text">原型文件在 SFTP 服务器上的存放根目录（其下自动分 prototypes/source_files/attachments 子目录）。</div>
+                </div>
+            </div>
+
+            <button type="submit" class="btn btn-primary">保存存储配置</button>
+        </form>
+    </div>
+
     {% for group in groups %}
     <div class="app-card mb-4">
         <h5 class="mb-3">{{ group.category }}</h5>
@@ -59,4 +118,12 @@
         </div>
     </div>
     {% endfor %}
+
+    <script>
+        function toggleStorageForm() {
+            var isLocal = document.getElementById('mode_local').checked;
+            document.getElementById('local_fields').style.display = isLocal ? '' : 'none';
+            document.getElementById('sftp_fields').style.display = isLocal ? 'none' : '';
+        }
+    </script>
 {% endblock %}

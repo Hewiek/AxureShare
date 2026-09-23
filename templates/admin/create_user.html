@@ -19,6 +19,11 @@
                 {{ form.confirm_password.label(class="form-control-label") }}
                 {{ form.confirm_password(class="form-control") }}
             </div>
+            <div class="mb-3">
+                {{ form.storage_quota_mb.label(class="form-control-label") }}
+                {{ form.storage_quota_mb(class="form-control") }}
+                <div class="form-text">该用户可使用的存储空间大小（MB），1GB = 1024 MB，默认 1024。</div>
+            </div>
             <div class="mb-3 mb-0">
                 {{ form.submit(class="btn btn-primary") }}
             </div>

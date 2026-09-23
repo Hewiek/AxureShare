@@ -9,6 +9,7 @@
   };
   var els = {};
   ["alwaysShow", "account", "serverLine", "projectPicker", "refresh", "newProjectRow", "newProjectName",
+    "segExisting", "segNew",
     "pickFolder", "folderPublic", "folderName", "bar", "status", "result"].forEach(function (id) {
     els[id] = $(id);
   });
@@ -89,7 +90,6 @@
         meta: ((p.prototypes || []).length || p.prototype_count || 0) + " 原型",
       });
     });
-    list.push({ value: NEW_PROJECT, text: "＋ 新建项目", action: "new" });
     return list;
   }
 
@@ -101,8 +101,11 @@
 
   function applyMode(next) {
     mode = next;
-    els.newProjectRow.style.display = next === "new" ? "block" : "none";
-    if (next === "new") {
+    var isNew = next === "new";
+    els.newProjectRow.style.display = isNew ? "block" : "none";
+    els.segExisting.classList.toggle("active", !isNew);
+    els.segNew.classList.toggle("active", isNew);
+    if (isNew) {
       if (!els.newProjectName.value) els.newProjectName.value = els.folderName.value.trim();
       els.newProjectName.focus();
     }
@@ -295,6 +298,13 @@
   els.alwaysShow.addEventListener("change", persist);
   els.refresh.addEventListener("click", loadProjects);
   els.pickFolder.addEventListener("click", uploadFolder);
+  els.segExisting.addEventListener("click", function () {
+    var value = picker.getValue();
+    applyMode(value && String(value) !== STANDALONE ? "existing" : "standalone");
+  });
+  els.segNew.addEventListener("click", function () {
+    applyMode("new");
+  });
 
   picker = AXShare.picker.create(document, {
     placeholder: "请选择或搜索需要更新的项目",

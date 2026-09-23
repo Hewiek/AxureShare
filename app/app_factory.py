@@ -13,12 +13,12 @@ from app.extensions import db, login_manager, migrate
 from app.models import User
 from app.routes import register_routes
 from app.services.ai import AiService
-from app.services.bootstrap import ensure_default_admin
+from app.services.bootstrap import ensure_default_admin, ensure_user_contact_columns
 from app.services.prototype_files import PrototypeFilesService
 from app.services.prototypes import PrototypeService
 from app.services.projects import ProjectService
 from app.utils.env_loader import load_dotenv_file, load_keys_from_markdown
-from app.utils.filters import datetime_cn
+from app.utils.filters import datetime_cn, file_size_cn
 
 def create_app() -> Flask:
     """创建并配置 Flask 应用。"""
@@ -36,8 +36,12 @@ def create_app() -> Flask:
     
     # 注册过滤器
     app.jinja_env.filters["datetime_cn"] = datetime_cn
+    app.jinja_env.filters["file_size_cn"] = file_size_cn
 
     app.config.update(build_app_config(base_dir=base_dir))
+
+    # 非 debug 模式下 Jinja 会缓存模板导致修改不生效，这里强制每次检查模板文件变更
+    app.config["TEMPLATES_AUTO_RELOAD"] = True
 
     db.init_app(app)
     migrate.init_app(app, db, render_as_batch=True)
@@ -85,6 +89,7 @@ def create_app() -> Flask:
 
     with app.app_context():
         if not os.environ.get("SKIP_BOOTSTRAP"):
+            ensure_user_contact_columns()
             ensure_default_admin()
         ai_service.init_storage()
         files_service.ensure_folders()

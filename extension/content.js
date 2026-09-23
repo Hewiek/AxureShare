@@ -42,6 +42,11 @@
     .acct { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 10px; border-radius: 8px;
       background: #f6f8fb; font-size: 12px; color: #5b6474; }
     .acct.on { background: #eefaf2; color: #1a7a4b; }
+    .seg { display: flex; gap: 8px; }
+    .seg-btn { flex: 1; border: 1px solid #d6dbe6; border-radius: 8px; background: #f6f8fc; color: #5b6472;
+      font-size: 13px; padding: 7px 10px; cursor: pointer; }
+    .seg-btn:hover { background: #eef2f8; }
+    .seg-btn.active { border-color: #2f6fed; background: #eaf1ff; color: #1c4fd0; font-weight: 600; }
     .link-btn { border: 0; background: none; color: #2f6fed; font-size: 12px; cursor: pointer; padding: 2px 4px; white-space: nowrap; }
     .link-btn:hover { text-decoration: underline; }
     .btn { padding: 9px 10px; border-radius: 6px; border: 1px solid #d7dce5; background: #f6f8fb; color: #1f2430; font-size: 13px; cursor: pointer; }
@@ -110,6 +115,27 @@
     });
   }
 
+  /* 命中 AxureShare 后台站点时自动上报地址，插件无需手动填写服务器。 */
+  async function reportSiteIfMatched() {
+    if (!/^https?:/i.test(location.href)) return;
+    try {
+      var res = await fetch("/api/extension/config", { credentials: "same-origin", cache: "no-store" });
+      if (!res.ok) return;
+      var data = await res.json();
+      if (!data || !Object.prototype.hasOwnProperty.call(data, "server_url")) return;
+      var canonical = "";
+      try {
+        canonical = new URL(data.server_url).origin;
+      } catch (e) {
+        /* server_url 异常时退回当前页面来源 */
+      }
+      await send({ type: "site:report", url: canonical || location.origin });
+    } catch (e) {
+      /* 非 AxureShare 页面，静默忽略 */
+    }
+  }
+  reportSiteIfMatched();
+
   function buildPanel() {
     host = document.createElement("div");
     host.id = "axureshare-helper";
@@ -146,16 +172,29 @@
     els.acct = el("div", "acct");
     bd.appendChild(els.acct);
 
+    els.segExisting = el("button", "seg-btn", "已有项目内替换");
+    els.segNew = el("button", "seg-btn", "新建项目");
+    els.segExisting.type = "button";
+    els.segNew.type = "button";
+    els.segExisting.addEventListener("click", function () {
+      var value = els.projectPicker.getValue();
+      applyMode(value && String(value) !== STANDALONE ? "existing" : "standalone");
+    });
+    els.segNew.addEventListener("click", function () { applyMode("new"); });
+    var modeRow = el("div", "seg");
+    modeRow.appendChild(els.segExisting);
+    modeRow.appendChild(els.segNew);
+    bd.appendChild(modeRow);
+
     els.projectPicker = P.create(shadow, {
       placeholder: "请选择或搜索需要更新的项目",
-      emptyText: "暂无项目，可新建项目",
+      emptyText: "暂无项目，可切换「新建项目」",
       onChange: onProjectChange,
-      onAction: onProjectAction,
     });
-    var projWrap = el("div", "fld");
+    els.projWrap = el("div", "fld");
     var projLabel = el("label", null, "项目");
     projLabel.appendChild(el("span", "req", " *"));
-    projWrap.appendChild(projLabel);
+    els.projWrap.appendChild(projLabel);
     var projLine = el("div", "row");
     var projGrow = el("div", "grow");
     projGrow.appendChild(els.projectPicker.node);
@@ -163,8 +202,8 @@
     els.refresh = el("button", "btn small", "刷新");
     els.refresh.addEventListener("click", function () { loadProjects(); });
     projLine.appendChild(els.refresh);
-    projWrap.appendChild(projLine);
-    bd.appendChild(projWrap);
+    els.projWrap.appendChild(projLine);
+    bd.appendChild(els.projWrap);
 
     els.newProjectName = el("input", "txt");
     els.newProjectName.placeholder = "如：2026-9-18 首页改版";
@@ -303,14 +342,17 @@
         meta: (p.prototype_count || (p.prototypes ? p.prototypes.length : 0)) + " 个原型",
       });
     });
-    list.push({ value: NEW_PROJECT, text: "＋ 新建项目", action: "new" });
     return list;
   }
 
   function applyMode(mode) {
     state.mode = mode;
-    els.newProjectField.style.display = mode === "new" ? "block" : "none";
-    if (mode === "new") {
+    var isNew = mode === "new";
+    if (els.projWrap) els.projWrap.style.display = isNew ? "none" : "block";
+    els.newProjectField.style.display = isNew ? "block" : "none";
+    els.segExisting.classList.toggle("active", !isNew);
+    els.segNew.classList.toggle("active", isNew);
+    if (isNew) {
       if (!els.newProjectName.value) els.newProjectName.value = els.protoPicker.getText() || defaultName();
       setTimeout(function () { els.newProjectName.focus(); }, 0);
     }
@@ -341,11 +383,6 @@
     applyMode("existing");
     applyPrototypeDefaults();
     persistProjectChoice();
-  }
-
-  function onProjectAction(action) {
-    if (action !== "new") return;
-    applyMode("new");
   }
 
   function onPrototypeChange() {

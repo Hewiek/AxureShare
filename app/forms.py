@@ -62,6 +62,7 @@ class CreateUserForm(FlaskForm):
     username = StringField("用户名", validators=[DataRequired(), Length(min=3, max=25)])
     password = PasswordField("新密码", validators=[DataRequired(), Length(min=6)])
     confirm_password = PasswordField("确认密码", validators=[DataRequired(), EqualTo("password", message="两次输入的密码不一致")])
+    storage_quota_mb = IntegerField("可用空间 (MB)", validators=[Optional()], default=1024)
     submit = SubmitField("创建用户")
 
 
@@ -70,6 +71,7 @@ class EditUserForm(FlaskForm):
 
     password = PasswordField("新密码 (留空则不修改)", validators=[Optional(), Length(min=6)])
     confirm_password = PasswordField("确认新密码", validators=[EqualTo("password", message="两次输入的密码不一致")])
+    storage_quota_mb = IntegerField("可用空间 (MB)", validators=[Optional()])
     submit = SubmitField("保存更改")
 
 

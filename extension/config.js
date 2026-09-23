@@ -1,8 +1,8 @@
-/* 接入配置：打包时只需改 BOOTSTRAP_SERVER；运行时会用后台下发的地址覆盖它。 */
+/* 接入配置：BOOTSTRAP_SERVER 仅为初始兜底；打开后台页面时插件会自动识别并覆盖。 */
 (function (global) {
   "use strict";
 
-  var BOOTSTRAP_SERVER = "http://192.168.1.34:7855";
+  var BOOTSTRAP_SERVER = "http://192.168.1.230:7855";
 
   /* 后台「服务配置 → 站点访问地址」的当前值；未配置时服务端回显本次请求的主机名。 */
   async function fetchServer(server) {
